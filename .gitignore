@@ -1,0 +1,32 @@
+# Python virtual environment
+.venv/
+env/
+ENV/
+*.pyc
+__pycache__/
+
+# Python package files
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Logs
+*.log
+
+# VS Code settings
+.vscode/
+*.code-workspace
+
+# Node.js dependencies
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.swp
+*.swo
