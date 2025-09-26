@@ -1,77 +1,54 @@
+# src/memory_layer/short_term_memory.py
+
 import os
 import json
-from collections import deque
-from typing import Any, Deque, Dict, Optional
+from typing import List, Dict, Optional
 
 
 class ShortTermMemory:
-    def __init__(self, max_size: int = 50, storage_path: Optional[str] = None):
-        """
-        Short-term memory for quick recall of recent items.
-
-        :param max_size: Maximum number of items to retain in memory.
-        :param storage_path: Optional path to persist memory between sessions.
-        """
-        self.max_size: int = max_size
-        self.storage_path: Optional[str] = storage_path
-        self.memory: Deque[Dict[str, Any]] = deque(maxlen=max_size)
-
-        # Load memory if storage_path exists
+    def __init__(
+        self,
+        max_size: int = 50,
+        storage_path: str = "memory_data/short_term_memory.json",
+    ):
+        self.max_size = max_size
+        self.storage_path = storage_path
+        self.memory: List[Dict] = []
         self._load()
 
-    def add(self, item: Dict[str, Any]) -> None:
-        """
-        Add an item to short-term memory and persist if storage_path is set.
-
-        :param item: The item to store.
-        """
-        self.memory.append(item)
+    def add(self, entry: Dict):
+        self.memory.append(entry)
+        if len(self.memory) > self.max_size:
+            self.memory.pop(0)
         self._persist()
 
-    def query(self, key: str, value: Any) -> Optional[Dict[str, Any]]:
-        """
-        Query memory for an item matching key=value.
+    def query(self, key: str, value: str, top_k: int = 5) -> List[Dict]:
+        matches = [
+            item
+            for item in self.memory
+            if key in item and value.lower() in (item[key] or "").lower()
+        ]
+        return matches[:top_k]
 
-        :param key: Dictionary key to match.
-        :param value: Value to match.
-        :return: The first matching item or None if not found.
-        """
-        for item in reversed(self.memory):
-            if key in item and item[key] == value:
-                return item
-        return None
+    def clear(self):
+        self.memory = []
+        if os.path.exists(self.storage_path):
+            os.remove(self.storage_path)
 
-    def _persist(self) -> None:
-        """
-        Save memory to disk if storage_path is set.
-        """
-        if self.storage_path is not None:
-            try:
-                with open(self.storage_path, "w", encoding="utf-8") as f:
-                    json.dump(list(self.memory), f, indent=2)
-            except Exception as e:
-                print(f"Error persisting memory: {e}")
+    def _persist(self):
+        try:
+            os.makedirs(os.path.dirname(self.storage_path), exist_ok=True)
+            with open(self.storage_path, "w", encoding="utf-8") as f:
+                json.dump(self.memory, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"Error persisting STM: {e}")
 
-    def _load(self) -> None:
-        """
-        Load memory from disk if storage_path exists.
-        """
-        if self.storage_path is not None and os.path.exists(self.storage_path):
-            try:
-                with open(self.storage_path, "r", encoding="utf-8") as f:
-                    items = json.load(f)
-                    self.memory = deque(items, maxlen=self.max_size)
-            except Exception:
-                # If corrupted or unreadable, start fresh
-                self.memory = deque(maxlen=self.max_size)
-
-    def clear(self) -> None:
-        """
-        Clear the memory and delete persisted file if exists.
-        """
-        self.memory.clear()
-        if self.storage_path is not None and os.path.exists(self.storage_path):
-            try:
-                os.remove(self.storage_path)
-            except Exception as e:
-                print(f"Error removing memory file: {e}")
+    def _load(self):
+        if not os.path.exists(self.storage_path):
+            return
+        try:
+            with open(self.storage_path, "r", encoding="utf-8") as f:
+                self.memory = json.load(f)
+        except Exception as e:
+            print(f"Error loading STM: {e}")
+            self.memory = []

@@ -57,7 +57,7 @@ class KnowledgeBase:
         if not self.data:
             return []
 
-        query_embedding = self.model.encode([query])[0].reshape(1, -1)
+        query_embedding = np.array(self.model.encode([query])[0]).reshape(1, -1)
         ids, embeddings = zip(*[(k, v["embedding"]) for k, v in self.data.items()])
         embeddings = np.array(embeddings)
 
