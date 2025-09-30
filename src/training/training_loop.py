@@ -1,76 +1,139 @@
 # src/training/training_loop.py
 
-from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments
-from datasets import Dataset
+from typing import Any, Dict, Tuple, cast
 import torch
-from typing import List, Dict
+from torch.utils.data import DataLoader
+from datasets import Dataset
+from transformers import (
+    AutoTokenizer,
+    AutoModelForCausalLM,
+    PreTrainedTokenizerBase,
+    PreTrainedModel,
+)
+
+# short max length to keep tests fast and memory-light
+MAX_LENGTH = 128
+DEFAULT_LR = 5e-5
 
 
 def tokenize_function(
-    examples: Dict[str, List[str]], tokenizer: AutoTokenizer
-) -> Dict[str, torch.Tensor]:
-    """Tokenizes input and output fields for causal language modeling."""
-    inputs = examples.get("input", [])
-    outputs = examples.get("output", [])
+    examples: Dict[str, Any], tokenizer: PreTrainedTokenizerBase
+) -> Dict[str, Any]:
+    """
+    Tokenize a batch (examples contains lists for 'input' and 'output').
+    Returns a mapping with lists for input_ids, attention_mask, and labels.
+    Uses tokenizer(...) (the modern __call__) - compatible with type checkers.
+    """
+    inputs = examples["input"]
+    outputs = examples["output"]
 
-    tokenized_inputs = tokenizer.batch_encode_plus(  # type: ignore[attr-defined]
+    tokenized_inputs = tokenizer(
         inputs,
-        truncation=True,
         padding="max_length",
-        max_length=512,
-        return_tensors="pt",
+        truncation=True,
+        max_length=MAX_LENGTH,
     )
-    tokenized_outputs = tokenizer.batch_encode_plus(  # type: ignore[attr-defined]
+    tokenized_outputs = tokenizer(
         outputs,
-        truncation=True,
         padding="max_length",
-        max_length=512,
-        return_tensors="pt",
+        truncation=True,
+        max_length=MAX_LENGTH,
     )
 
-    tokenized_inputs["labels"] = tokenized_outputs["input_ids"]
-    return tokenized_inputs
+    return {
+        "input_ids": tokenized_inputs["input_ids"],
+        "attention_mask": tokenized_inputs.get("attention_mask"),
+        "labels": tokenized_outputs["input_ids"],
+    }
 
 
-def prepare_dataset(dataset: Dataset, tokenizer: AutoTokenizer) -> Dataset:
-    """Tokenizes the entire dataset for Trainer."""
-    tokenized_dataset = dataset.map(
+def prepare_dataset(dataset: Dataset, tokenizer: PreTrainedTokenizerBase) -> Dataset:
+    """
+    Tokenize the Hugging Face Dataset, remove other columns, and set PyTorch format.
+    """
+    tokenized = dataset.map(
         lambda examples: tokenize_function(examples, tokenizer), batched=True
     )
-    return tokenized_dataset
+
+    # Keep only tensor-friendly columns
+    keep = [
+        c
+        for c in tokenized.column_names
+        if c in ("input_ids", "attention_mask", "labels")
+    ]
+    tokenized = tokenized.remove_columns(
+        [c for c in tokenized.column_names if c not in keep]
+    )
+
+    # Set dataset to return PyTorch tensors
+    tokenized.set_format(type="torch", columns=keep)
+    return tokenized
 
 
 def train_model(
     model_name: str,
     dataset: Dataset,
-    output_dir: str = "./results",
     epochs: int = 1,
-    batch_size: int = 4,
-    lr: float = 5e-5,
-    device: str = "cuda" if torch.cuda.is_available() else "cpu",
-):
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForCausalLM.from_pretrained(model_name)
-    model.to(device)
+    batch_size: int = 2,
+    lr: float = DEFAULT_LR,
+    device: torch.device | None = None,
+) -> Tuple[AutoModelForCausalLM, PreTrainedTokenizerBase]:
+    """
+    Minimal training loop using PyTorch directly (no Trainer / accelerate).
+    - Loads tokenizer + model
+    - Ensures pad_token exists (adds '[PAD]' if necessary) and resizes embeddings
+    - Tokenizes the dataset and converts to PyTorch tensors
+    - Runs a small training loop and returns (model, tokenizer)
+    """
 
+    # Load tokenizer and model with strict casting for Pylance
+    tokenizer = cast(
+        PreTrainedTokenizerBase,
+        AutoTokenizer.from_pretrained(model_name),
+    )
+    model = cast(
+        AutoModelForCausalLM,
+        AutoModelForCausalLM.from_pretrained(model_name),
+    )
+
+    # Ensure pad token exists (GPT-2 family typically doesn't have one)
+    if getattr(tokenizer, "pad_token", None) is None:
+        tokenizer.add_special_tokens({"pad_token": "[PAD]"})
+        model.resize_token_embeddings(len(tokenizer))
+
+    # Prepare dataset
     tokenized_dataset = prepare_dataset(dataset, tokenizer)
 
-    training_args = TrainingArguments(
-        output_dir=output_dir,
-        num_train_epochs=epochs,
-        per_device_train_batch_size=batch_size,
-        learning_rate=lr,
-        save_strategy="no",
-        logging_strategy="steps",
-        logging_steps=50,
-        report_to=None,  # ❌ was "none", now None
+    # Device selection
+    device = device or (
+        torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     )
+    model.to(device)
 
-    trainer = Trainer(
-        model=model,
-        args=training_args,
-        train_dataset=tokenized_dataset,  # type: ignore
-    )
+    # DataLoader
+    dataloader = DataLoader(tokenized_dataset, batch_size=batch_size, shuffle=True)
 
-    trainer.train()
+    # Optimizer
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+
+    model.train()
+    for _ in range(max(1, int(epochs))):
+        for batch in dataloader:
+            input_ids = batch["input_ids"].to(device)
+            attention_mask = batch.get("attention_mask")
+            if attention_mask is not None:
+                attention_mask = attention_mask.to(device)
+            labels = batch["labels"].to(device)
+
+            kwargs: Dict[str, Any] = {"input_ids": input_ids, "labels": labels}
+            if attention_mask is not None:
+                kwargs["attention_mask"] = attention_mask
+
+            outputs = model(**kwargs)
+            loss = outputs.loss
+            loss.backward()
+
+            optimizer.step()
+            optimizer.zero_grad()
+
     return model, tokenizer

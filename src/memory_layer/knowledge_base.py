@@ -1,116 +1,82 @@
-# backend/memory_layer/knowledge_base.py
+# src/memory_layer/Knowledge_Base.py
 
 import os
 import json
 import uuid
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
+
+
+class DummyEmbedder:
+    """Fallback embedder if none is provided (for CPU-only setups)."""
+
+    def encode(self, texts: List[str]) -> np.ndarray:
+        # Return random vectors just so the pipeline works
+        return np.random.rand(len(texts), 384).astype(np.float32)
+
+
+class DummyIndexer:
+    """Simple in-memory indexer for prototyping."""
+
+    def __init__(self):
+        self.vectors: List[np.ndarray] = []
+        self.metadata: List[Dict[str, Any]] = []
+
+    def add(self, vectors: np.ndarray, metadata: List[Dict[str, Any]]):
+        self.vectors.extend(vectors)
+        self.metadata.extend(metadata)
+
+    def search(self, query_vec: np.ndarray, top_k: int = 5) -> List[Dict[str, Any]]:
+        if not self.vectors:
+            return []
+
+        sims = np.dot(self.vectors, query_vec.T).flatten()
+        top_idx = sims.argsort()[::-1][:top_k]
+
+        return [self.metadata[i] for i in top_idx]
+
+
+class Reranker:
+    """Placeholder reranker until proper model is integrated."""
+
+    def __init__(self, model: Optional[Any] = None):
+        self.model = model
+
+    def rank(
+        self, query: str, candidates: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        # TODO: Implement proper reranking with model
+        # For now, just return candidates unchanged
+        return candidates
 
 
 class KnowledgeBase:
-    """
-    Long-term memory layer for Achilles Agent.
-    Stores embeddings + metadata for persistent knowledge retrieval.
-    """
-
     def __init__(
         self,
-        storage_path: str = "backend/memory_layer/storage/knowledge_base.json",
-        embedding_model: str = "all-MiniLM-L6-v2",
+        embedder: Optional[Any] = None,
+        indexer: Optional[Any] = None,
+        reranker: Optional[Any] = None,
     ):
-        self.storage_path = storage_path
-        os.makedirs(os.path.dirname(storage_path), exist_ok=True)
+        self.embedder = embedder or DummyEmbedder()
+        self.indexer = indexer or DummyIndexer()
+        self.reranker = reranker or Reranker()
 
-        # Load or init store
-        if os.path.exists(storage_path):
-            with open(storage_path, "r", encoding="utf-8") as f:
-                self.data = json.load(f)
-        else:
-            self.data = {}
+    def _ensure_list(self, texts: Union[str, List[str]]) -> List[str]:
+        return [texts] if isinstance(texts, str) else texts
 
-        # Embedding model
-        self.model = SentenceTransformer(embedding_model)
+    def add_document(
+        self, doc_id: str, text: str, metadata: Optional[Dict[str, Any]] = None
+    ):
+        text_list = self._ensure_list(text)
+        vector = self.embedder.encode(text_list)
+        self.indexer.add(vector, [metadata or {"id": doc_id, "text": text}])
 
-    def add_entry(self, text: str, metadata: Optional[Dict[str, Any]] = None) -> str:
-        """
-        Add new text to knowledge base with embedding + metadata.
-        Returns ID of entry.
-        """
-        entry_id = str(uuid.uuid4())
-        embedding = self.model.encode([text])[0].tolist()
-        self.data[entry_id] = {
-            "text": text,
-            "embedding": embedding,
-            "metadata": metadata or {},
-        }
-        self._save()
-        return entry_id
+    def query(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+        query_vec = self.embedder.encode(self._ensure_list(query))
+        candidates = self.indexer.search(query_vec[0], top_k=top_k)
+        return self.reranker.rank(query, candidates)
 
     def search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
-        """
-        Search for relevant entries given a query string.
-        Returns top_k entries sorted by cosine similarity.
-        """
-        if not self.data:
-            return []
-
-        query_embedding = np.array(self.model.encode([query])[0]).reshape(1, -1)
-        ids, embeddings = zip(*[(k, v["embedding"]) for k, v in self.data.items()])
-        embeddings = np.array(embeddings)
-
-        scores = cosine_similarity(query_embedding, embeddings)[0]
-        top_indices = scores.argsort()[-top_k:][::-1]
-
-        return [
-            {
-                "id": ids[i],
-                "text": self.data[ids[i]]["text"],
-                "metadata": self.data[ids[i]]["metadata"],
-                "score": float(scores[i]),
-            }
-            for i in top_indices
-        ]
-
-    def update_entry(
-        self, entry_id: str, new_text: str, metadata: Optional[Dict[str, Any]] = None
-    ) -> bool:
-        """
-        Update existing entry if present.
-        Returns True if successful.
-        """
-        if entry_id not in self.data:
-            return False
-
-        embedding = self.model.encode([new_text])[0].tolist()
-        self.data[entry_id].update(
-            {
-                "text": new_text,
-                "embedding": embedding,
-                "metadata": metadata or self.data[entry_id]["metadata"],
-            }
-        )
-        self._save()
-        return True
-
-    def _save(self):
-        with open(self.storage_path, "w", encoding="utf-8") as f:
-            json.dump(self.data, f, indent=2)
-
-
-if __name__ == "__main__":
-    kb = KnowledgeBase()
-
-    # Test run
-    print("Adding entry...")
-    entry_id = kb.add_entry(
-        "Python function to compute factorial.", {"source": "manual_test"}
-    )
-    print("Entry added:", entry_id)
-
-    print("\nSearching for 'factorial code'...")
-    results = kb.search("factorial code")
-    for r in results:
-        print(r)
+        """Alias for query(), kept for backward compatibility."""
+        return self.query(query, top_k=top_k)
