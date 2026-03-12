@@ -9,7 +9,7 @@ class ShortTermMemory:
     def __init__(
         self,
         max_size: int = 50,
-        storage_path: str = "memory_data/short_term_memory.json",
+        storage_path: str = "backend/memory_layer/storage/short_term_memory.json",
     ):
         self.max_size = max_size
         self.storage_path = storage_path
@@ -26,7 +26,7 @@ class ShortTermMemory:
         matches = [
             item
             for item in self.memory
-            if key in item and value.lower() in (item[key] or "").lower()
+            if key in item and str(value).lower() in str(item[key] or "").lower()
         ]
         return matches[:top_k]
 

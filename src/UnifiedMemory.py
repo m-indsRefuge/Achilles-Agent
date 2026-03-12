@@ -1,6 +1,6 @@
 from memory_layer.short_term_memory import ShortTermMemory
 from memory_layer.quick_recall import QuickRecall
-from memory_layer.MemoryManager import MemoryManager
+from memory_layer.memory_manager import MemoryManager
 
 
 class UnifiedMemory:

@@ -1,4 +1,4 @@
-# backend/memory_layer/knowledge_base.py
+# src/memory_layer/knowledge_base.py
 
 import os
 import json
