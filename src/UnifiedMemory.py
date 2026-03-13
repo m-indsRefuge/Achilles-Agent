@@ -1,13 +1,14 @@
 from memory_layer.short_term_memory import ShortTermMemory
 from memory_layer.quick_recall import QuickRecall
 from memory_layer.memory_manager import MemoryManager
+from memory_layer.knowledge_base import KnowledgeBase
 
 
 class UnifiedMemory:
     def __init__(self, short_term_path, quick_recall_path, kb_path):
         self.short_term = ShortTermMemory(max_size=50, storage_path=short_term_path)
         self.quick_recall = QuickRecall(storage_path=quick_recall_path)
-        self.kb = MemoryManager(storage_path=kb_path)
+        self.kb = KnowledgeBase(storage_path=kb_path)
 
     # Add methods that wrap each memory layer
     def add_short_term(self, entry):
@@ -26,4 +27,4 @@ class UnifiedMemory:
         return self.quick_recall.query(embedding, top_k)
 
     def query_kb(self, query_text, top_k=5):
-        return self.kb.query(query_text, top_k)
+        return self.kb.search(query_text, top_k)
