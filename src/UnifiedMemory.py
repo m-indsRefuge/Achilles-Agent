@@ -18,7 +18,10 @@ class UnifiedMemory:
         self.quick_recall.add(entry, embedding)
 
     def add_kb(self, text, metadata=None):
-        self.kb.add_entry(text, metadata)
+        return self.kb.add_entry(text, metadata)
+
+    def add_kb_batch(self, texts, metadatas=None):
+        return self.kb.add_entries(texts, metadatas)
 
     def query_short_term(self, key, value):
         return self.short_term.query(key, value)

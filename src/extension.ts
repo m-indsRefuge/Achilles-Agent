@@ -3,6 +3,7 @@ import { ModelInterface } from './ai/codeLlama/modelInterface';
 import { PythonBridge } from './comms/pythonBridge';
 import { fillTemplate, CHAT_PROMPT } from './ai/prompts/promptTemplates';
 import { SidebarProvider } from './ui/sidebarProvider';
+import { ProjectAnalyzer } from './project/analyzer';
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('Achilles Agent is now active!');
@@ -14,6 +15,7 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     const bridge = new PythonBridge();
+    const analyzer = new ProjectAnalyzer();
 
     const sidebarProvider = new SidebarProvider(context.extensionUri);
     context.subscriptions.push(
@@ -28,6 +30,8 @@ export function activate(context: vscode.ExtensionContext) {
 
         if (input) {
             try {
+                sidebarProvider.addMessage('user', input);
+
                 // 1. Search Knowledge Base via Python Bridge
                 const kbResults = await bridge.queryMemory('kb', { text: input });
                 const contextText = kbResults.length > 0
@@ -43,7 +47,7 @@ export function activate(context: vscode.ExtensionContext) {
                 // 3. Generate Response
                 const response = await model.generate(prompt);
 
-                vscode.window.showInformationMessage(`Achilles: ${response}`);
+                sidebarProvider.addMessage('bot', response);
             } catch (error: any) {
                 vscode.window.showErrorMessage(`Achilles Error: ${error.message}`);
             }
@@ -54,7 +58,20 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showInformationMessage('Achilles short-term memory cleared.');
     });
 
-    context.subscriptions.push(askCommand, clearMemoryCommand);
+    let analyzeCommand = vscode.commands.registerCommand('achilles.analyzeProject', async () => {
+        vscode.window.showInformationMessage('Achilles is analyzing your project...');
+        try {
+            await analyzer.analyzeWorkspace();
+            vscode.window.showInformationMessage('Project analysis complete!');
+        } catch (error: any) {
+            vscode.window.showErrorMessage(`Analysis Error: ${error.message}`);
+        }
+    });
+
+    context.subscriptions.push(askCommand, clearMemoryCommand, analyzeCommand);
+
+    // Initial analysis
+    analyzer.analyzeWorkspace().catch(e => console.error('Initial analysis failed:', e));
 }
 
 export function deactivate() {}

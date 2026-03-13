@@ -1,3 +1,5 @@
+import { ChatGPTClient } from '../../comms/chatGPTClient';
+
 export interface ModelConfig {
     modelName: string;
     temperature: number;
@@ -6,19 +8,22 @@ export interface ModelConfig {
 
 export class ModelInterface {
     private config: ModelConfig;
+    private client: ChatGPTClient;
 
     constructor(config: ModelConfig) {
         this.config = config;
+        this.client = new ChatGPTClient();
     }
 
     async generate(prompt: string): Promise<string> {
-        // Placeholder for actual LLM call
-        console.log(`Generating with ${this.config.modelName} for prompt: ${prompt}`);
-        return `Response from ${this.config.modelName} to: ${prompt}`;
+        return this.client.chat(
+            [{ role: 'user', content: prompt }],
+            this.config.modelName,
+            this.config.temperature
+        );
     }
 
     async embed(text: string): Promise<number[]> {
-        // Placeholder for actual embedding call
-        return new Array(384).fill(0);
+        return this.client.createEmbedding(text);
     }
 }

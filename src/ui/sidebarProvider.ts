@@ -30,6 +30,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         });
     }
 
+    public addMessage(role: string, text: string) {
+        if (this._view) {
+            this._view.webview.postMessage({ type: 'addMessage', role, text });
+        }
+    }
+
     private _getHtmlForWebview(webview: vscode.Webview) {
         return `<!DOCTYPE html>
             <html lang="en">
@@ -38,17 +44,58 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <title>Achilles Chat</title>
                 <style>
-                    body { font-family: sans-serif; padding: 10px; }
-                    #chat { margin-bottom: 10px; border: 1px solid #ccc; height: 200px; overflow-y: auto; padding: 5px; }
-                    input { width: 100%; box-sizing: border-box; }
+                    body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); padding: 10px; }
+                    #chat { margin-bottom: 10px; height: calc(100vh - 80px); overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+                    .message { padding: 8px; border-radius: 4px; max-width: 90%; word-wrap: break-word; }
+                    .user { background: var(--vscode-button-background); color: var(--vscode-button-foreground); align-self: flex-end; }
+                    .bot { background: var(--vscode-sideBar-background); border: 1px solid var(--vscode-panel-border); align-self: flex-start; }
+                    code { background: rgba(128, 128, 128, 0.2); padding: 2px 4px; border-radius: 3px; }
+                    pre { background: rgba(0, 0, 0, 0.3); padding: 8px; overflow-x: auto; border-radius: 4px; }
+                    input { width: 100%; box-sizing: border-box; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); padding: 8px; }
                 </style>
             </head>
             <body>
-                <div id="chat">Welcome to Achilles Agent!</div>
+                <div id="chat"></div>
                 <input type="text" id="input" placeholder="Ask Achilles..." />
                 <script>
                     const vscode = acquireVsCodeApi();
+                    const chat = document.getElementById('chat');
                     const input = document.getElementById('input');
+
+                    window.addEventListener('message', event => {
+                        const message = event.data;
+                        if (message.type === 'addMessage') {
+                            const div = document.createElement('div');
+                            div.className = 'message ' + (message.role === 'user' ? 'user' : 'bot');
+
+                            // Basic pseudo-markdown for code blocks
+                            let text = message.text
+                                .replace(/&/g, "&amp;")
+                                .replace(/</g, "&lt;")
+                                .replace(/>/g, "&gt;");
+
+                            // Using a safe placeholder for backticks to avoid escaping issues in template string
+                            const backtick = String.fromCharCode(96);
+                            const tripleBacktick = backtick + backtick + backtick;
+
+                            text = text.split(tripleBacktick).map((part, i) => {
+                                if (i % 2 === 1) {
+                                    return '<pre><code>' + part + '</code></pre>';
+                                }
+                                return part.split(backtick).map((subPart, j) => {
+                                    if (j % 2 === 1) {
+                                        return '<code>' + subPart + '</code>';
+                                    }
+                                    return subPart;
+                                }).join('');
+                            }).join('');
+
+                            div.innerHTML = text;
+                            chat.appendChild(div);
+                            chat.scrollTop = chat.scrollHeight;
+                        }
+                    });
+
                     input.addEventListener('keypress', (e) => {
                         if (e.key === 'Enter') {
                             vscode.postMessage({ type: 'onAsk', value: input.value });
