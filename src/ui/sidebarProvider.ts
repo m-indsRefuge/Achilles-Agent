@@ -57,6 +57,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
             <body>
                 <div id="chat"></div>
                 <input type="text" id="input" placeholder="Ask Achilles..." />
+                <script src="https://cdn.jsdelivr.net/npm/markdown-it@13.0.1/dist/markdown-it.min.js"></script>
                 <script>
                     const vscode = acquireVsCodeApi();
                     const chat = document.getElementById('chat');
@@ -67,30 +68,14 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
                         if (message.type === 'addMessage') {
                             const div = document.createElement('div');
                             div.className = 'message ' + (message.role === 'user' ? 'user' : 'bot');
+                            div.textContent = message.text; // Default to text
 
-                            // Basic pseudo-markdown for code blocks
-                            let text = message.text
-                                .replace(/&/g, "&amp;")
-                                .replace(/</g, "&lt;")
-                                .replace(/>/g, "&gt;");
+                            // Use markdown-it if available (loaded via CDN for simplicity in this webview)
+                            if (window.markdownit) {
+                                const md = window.markdownit();
+                                div.innerHTML = md.render(message.text);
+                            }
 
-                            // Using a safe placeholder for backticks to avoid escaping issues in template string
-                            const backtick = String.fromCharCode(96);
-                            const tripleBacktick = backtick + backtick + backtick;
-
-                            text = text.split(tripleBacktick).map((part, i) => {
-                                if (i % 2 === 1) {
-                                    return '<pre><code>' + part + '</code></pre>';
-                                }
-                                return part.split(backtick).map((subPart, j) => {
-                                    if (j % 2 === 1) {
-                                        return '<code>' + subPart + '</code>';
-                                    }
-                                    return subPart;
-                                }).join('');
-                            }).join('');
-
-                            div.innerHTML = text;
                             chat.appendChild(div);
                             chat.scrollTop = chat.scrollHeight;
                         }

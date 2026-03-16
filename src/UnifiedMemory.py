@@ -23,6 +23,9 @@ class UnifiedMemory:
     def add_kb_batch(self, texts, metadatas=None):
         return self.kb.add_entries(texts, metadatas)
 
+    def clear_kb_file(self, file_path):
+        return self.kb.clear_file_entries(file_path)
+
     def query_short_term(self, key, value):
         return self.short_term.query(key, value)
 

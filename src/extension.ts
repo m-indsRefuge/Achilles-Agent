@@ -4,6 +4,10 @@ import { PythonBridge } from './comms/pythonBridge';
 import { fillTemplate, CHAT_PROMPT } from './ai/prompts/promptTemplates';
 import { SidebarProvider } from './ui/sidebarProvider';
 import { ProjectAnalyzer } from './project/analyzer';
+import { FileWatcher } from './project/fileWatcher';
+import { TaskRunner } from './tasks/taskRunner';
+import { ReRanker } from './ai/reRanker/reRankerInterface';
+import { AchillesMCPServer } from './comms/mcpServer';
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('Achilles Agent is now active!');
@@ -15,11 +19,17 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     const bridge = new PythonBridge();
-    const analyzer = new ProjectAnalyzer();
+    const analyzer = new ProjectAnalyzer(bridge);
+    const fileWatcher = new FileWatcher(analyzer);
+    const mcpServer = new AchillesMCPServer(bridge);
+    const taskRunner = new TaskRunner();
+    const reranker = new ReRanker();
 
     const sidebarProvider = new SidebarProvider(context.extensionUri);
     context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(SidebarProvider.viewType, sidebarProvider)
+        vscode.window.registerWebviewViewProvider(SidebarProvider.viewType, sidebarProvider),
+        bridge,
+        fileWatcher
     );
 
     let askCommand = vscode.commands.registerCommand('achilles.ask', async (text?: string) => {
@@ -32,22 +42,41 @@ export function activate(context: vscode.ExtensionContext) {
             try {
                 sidebarProvider.addMessage('user', input);
 
-                // 1. Search Knowledge Base via Python Bridge
-                const kbResults = await bridge.queryMemory('kb', { text: input });
-                const contextText = kbResults.length > 0
-                    ? kbResults.map((r: any) => r.text).join('\n')
-                    : 'No relevant context found.';
+                let currentInput = input;
+                let loopCount = 0;
+                const MAX_LOOPS = 3;
 
-                // 2. Prepare Prompt
-                const prompt = fillTemplate(CHAT_PROMPT, {
-                    context: contextText,
-                    question: input
-                });
+                while (loopCount < MAX_LOOPS) {
+                    // 1. Search Knowledge Base
+                    const kbResults = await bridge.queryMemory('kb', { text: currentInput, top_k: 10 });
+                    const refinedResults = await reranker.rerank(currentInput, kbResults);
+                    const topResults = refinedResults.slice(0, 5);
+                    const contextText = topResults.length > 0 ? topResults.map((r: any) => r.text).join('\n') : 'No relevant context found.';
 
-                // 3. Generate Response
-                const response = await model.generate(prompt);
+                    // 2. Generate Response
+                    const prompt = fillTemplate(CHAT_PROMPT, { context: contextText, question: currentInput });
+                    const response = await model.generate(prompt);
 
-                sidebarProvider.addMessage('bot', response);
+                    // 3. Handle Tasks
+                    if (response.includes('RUN_TASK:')) {
+                        const taskJson = response.split('RUN_TASK:')[1].trim();
+                        try {
+                            const task = JSON.parse(taskJson);
+                            const taskResult = await taskRunner.run(task);
+                            sidebarProvider.addMessage('bot', `${response}\n\nTask Result: ${taskResult}`);
+
+                            // Feed the result back to the AI for the next step
+                            currentInput = `Task result: ${taskResult}. What is the next step?`;
+                            loopCount++;
+                        } catch (e: any) {
+                            sidebarProvider.addMessage('bot', `${response}\n\nTask Failed: ${e.message}`);
+                            break;
+                        }
+                    } else {
+                        sidebarProvider.addMessage('bot', response);
+                        break;
+                    }
+                }
             } catch (error: any) {
                 vscode.window.showErrorMessage(`Achilles Error: ${error.message}`);
             }
@@ -70,8 +99,9 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(askCommand, clearMemoryCommand, analyzeCommand);
 
-    // Initial analysis
+    // Initial actions
     analyzer.analyzeWorkspace().catch(e => console.error('Initial analysis failed:', e));
+    mcpServer.run().catch(e => console.error('MCP Server failed to start:', e));
 }
 
 export function deactivate() {}

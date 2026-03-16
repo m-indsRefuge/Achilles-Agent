@@ -7,6 +7,10 @@ Context:
 Question:
 {question}
 
+If you need to perform an action, you can suggest a task in JSON format using the prefix RUN_TASK:.
+Example: RUN_TASK: {"type": "shell", "command": "npm test"}
+Example: RUN_TASK: {"type": "edit", "filePath": "src/main.ts", "content": "console.log('hello');"}
+
 Answer:`;
 
 export function fillTemplate(template: string, variables: Record<string, string>): string {

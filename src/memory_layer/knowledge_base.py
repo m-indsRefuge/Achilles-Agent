@@ -67,6 +67,21 @@ class KnowledgeBase:
         self._save()
         return ids
 
+    def clear_file_entries(self, file_path: str):
+        """
+        Remove all entries associated with a specific file path in metadata.
+        Used for deduplication during re-indexing.
+        """
+        to_delete = [
+            k
+            for k, v in self.data.items()
+            if v.get("metadata", {}).get("path") == file_path
+        ]
+        for k in to_delete:
+            del self.data[k]
+        if to_delete:
+            self._save()
+
     def search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         """
         Search for relevant entries given a query string.
