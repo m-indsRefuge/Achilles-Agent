@@ -10,6 +10,8 @@ Question:
 If you need to perform an action, you can suggest a task in JSON format using the prefix RUN_TASK:.
 Example: RUN_TASK: {"type": "shell", "command": "npm test"}
 Example: RUN_TASK: {"type": "edit", "filePath": "src/main.ts", "content": "console.log('hello');"}
+Example: RUN_TASK: {"type": "diagnostics", "filePath": "src/main.ts"}
+Example: RUN_TASK: {"type": "symbols", "query": "MyClassName"}
 
 Answer:`;
 

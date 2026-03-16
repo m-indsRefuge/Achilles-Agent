@@ -6,13 +6,17 @@ export interface ModelConfig {
     maxTokens: number;
 }
 
+import * as vscode from 'vscode';
+
 export class ModelInterface {
     private config: ModelConfig;
     private client: ChatGPTClient;
 
     constructor(config: ModelConfig) {
         this.config = config;
-        this.client = new ChatGPTClient();
+        const extensionConfig = vscode.workspace.getConfiguration('achilles');
+        const baseURL = extensionConfig.get<string>('ollama.baseURL');
+        this.client = new ChatGPTClient('ollama', baseURL);
     }
 
     async generate(prompt: string): Promise<string> {

@@ -14,6 +14,9 @@ class UnifiedMemory:
     def add_short_term(self, entry):
         self.short_term.add(entry)
 
+    def summarize_short_term(self, summary_text):
+        return self.short_term.summarize(summary_text)
+
     def add_quick_recall(self, entry, embedding=None):
         self.quick_recall.add(entry, embedding)
 
@@ -34,3 +37,6 @@ class UnifiedMemory:
 
     def query_kb(self, query_text, top_k=5):
         return self.kb.search(query_text, top_k)
+
+    def rerank_kb(self, query_text, results):
+        return self.kb.rerank(query_text, results)

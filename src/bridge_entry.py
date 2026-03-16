@@ -35,8 +35,12 @@ def main():
                 results = um.add_kb_batch(query.get("texts", []), query.get("metadatas", []))
             elif layer == "kb_clear_file":
                 results = um.clear_kb_file(query.get("path", ""))
+            elif layer == "kb_rerank":
+                results = um.rerank_kb(query.get("text", ""), query.get("results", []))
             elif layer == "stm":
                 results = um.query_short_term(query.get("key", ""), query.get("value", ""))
+            elif layer == "stm_summarize":
+                results = um.summarize_short_term(query.get("text", ""))
             elif layer == "stm_add":
                 results = um.add_short_term(query.get("entry", {}))
             elif layer == "qr":

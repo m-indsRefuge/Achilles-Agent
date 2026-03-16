@@ -18,6 +18,31 @@
     ],
     "main": "./out/extension.js",
     "contributes": {
+        "configuration": {
+            "title": "Achilles Agent",
+            "properties": {
+                "achilles.ollama.baseURL": {
+                    "type": "string",
+                    "default": "http://localhost:11434/v1",
+                    "description": "Base URL for the Ollama (or OpenAI compatible) API."
+                },
+                "achilles.ollama.model": {
+                    "type": "string",
+                    "default": "codellama",
+                    "description": "Model to use for text generation."
+                },
+                "achilles.ollama.embeddingModel": {
+                    "type": "string",
+                    "default": "nomic-embed-text",
+                    "description": "Model to use for embeddings."
+                },
+                "achilles.search.topK": {
+                    "type": "integer",
+                    "default": 5,
+                    "description": "Number of context results to retrieve from the Knowledge Base."
+                }
+            }
+        },
         "commands": [
             {
                 "command": "achilles.ask",

@@ -6,7 +6,7 @@ import uuid
 from typing import List, Dict, Any, Optional
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, CrossEncoder
 from sklearn.metrics.pairwise import cosine_similarity
 from .db.kb_db import KBStore
 
@@ -21,12 +21,18 @@ class KnowledgeBase:
         self,
         storage_path: str = "backend/memory_layer/storage/knowledge_base.json",
         embedding_model: str = "all-MiniLM-L6-v2",
+        rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
     ):
         self.storage_path = storage_path
         self.store = KBStore(storage_path)
 
         # Embedding model
         self.model = SentenceTransformer(embedding_model)
+        # Re-ranker model (lazy load in real scenarios, but here for skeleton)
+        try:
+            self.reranker = CrossEncoder(rerank_model)
+        except:
+            self.reranker = None
 
     @property
     def data(self):
@@ -77,6 +83,21 @@ class KnowledgeBase:
         """
         query_embedding = np.array([self.model.encode([query])[0]], dtype="float32")
         return self.store.search(query_embedding, top_k)
+
+    def rerank(self, query: str, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Refine search results using a Cross-Encoder.
+        """
+        if not self.reranker or not results:
+            return results
+
+        pairs = [[query, r["text"]] for r in results]
+        scores = self.reranker.predict(pairs)
+
+        for i, score in enumerate(scores):
+            results[i]["rerank_score"] = float(score)
+
+        return sorted(results, key=lambda x: x.get("rerank_score", 0), reverse=True)
 
     def update_entry(
         self, entry_id: str, new_text: str, metadata: Optional[Dict[str, Any]] = None

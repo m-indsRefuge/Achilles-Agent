@@ -1,3 +1,5 @@
+import { PythonBridge } from '../../comms/pythonBridge';
+
 export interface ScoredResult {
     text: string;
     score: number;
@@ -5,28 +7,29 @@ export interface ScoredResult {
 }
 
 export class ReRanker {
+    private bridge: PythonBridge;
+
+    constructor(bridge: PythonBridge) {
+        this.bridge = bridge;
+    }
+
     /**
-     * Simple re-ranker that refines search results based on keyword density
-     * or other heuristics. Can be expanded to use a Cross-Encoder LLM.
+     * Advanced re-ranker that uses a Cross-Encoder via the Python bridge.
      */
     public async rerank(query: string, results: ScoredResult[]): Promise<ScoredResult[]> {
-        const queryTerms = query.toLowerCase().split(/\s+/);
+        if (!results || results.length === 0) {
+            return [];
+        }
 
-        const reranked = results.map(res => {
-            const text = res.text.toLowerCase();
-            let termMatches = 0;
-
-            queryTerms.forEach(term => {
-                if (text.includes(term)) {
-                    termMatches++;
-                }
+        try {
+            const reranked = await this.bridge.queryMemory('kb_rerank', {
+                text: query,
+                results: results
             });
-
-            // Combine original vector score with keyword match score
-            const newScore = (res.score * 0.7) + ((termMatches / queryTerms.length) * 0.3);
-            return { ...res, score: newScore };
-        });
-
-        return reranked.sort((a, b) => b.score - a.score);
+            return reranked;
+        } catch (error) {
+            console.error('Re-ranking failed, falling back to original results:', error);
+            return results;
+        }
     }
 }

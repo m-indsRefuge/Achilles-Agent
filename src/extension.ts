@@ -14,8 +14,10 @@ import { InlineCompletionProvider } from './ui/inlineSuggestions';
 export function activate(context: vscode.ExtensionContext) {
     console.log('Achilles Agent is now active!');
 
+    const config = vscode.workspace.getConfiguration('achilles');
+
     const model = new ModelInterface({
-        modelName: 'code-llama-7b',
+        modelName: config.get<string>('ollama.model') || 'codellama',
         temperature: 0.7,
         maxTokens: 512
     });
@@ -26,7 +28,7 @@ export function activate(context: vscode.ExtensionContext) {
     const mcpServer = new AchillesMCPServer(bridge);
     const taskRunner = new TaskRunner();
     const automationManager = new AutomationManager(taskRunner, model);
-    const reranker = new ReRanker();
+    const reranker = new ReRanker(bridge);
 
     const sidebarProvider = new SidebarProvider(context.extensionUri);
     const inlineProvider = new InlineCompletionProvider(model, bridge);
@@ -47,6 +49,9 @@ export function activate(context: vscode.ExtensionContext) {
         if (input) {
             try {
                 sidebarProvider.addMessage('user', input);
+
+                // Add to STM
+                await bridge.queryMemory('stm_add', { entry: { role: 'user', content: input } });
 
                 let currentInput = input;
                 let loopCount = 0;
@@ -73,6 +78,7 @@ export function activate(context: vscode.ExtensionContext) {
 
                             // Feed the result back to the AI for the next step
                             currentInput = `Task result: ${taskResult}. What is the next step?`;
+                            await bridge.queryMemory('stm_add', { entry: { role: 'system', content: currentInput } });
                             loopCount++;
                         } catch (e: any) {
                             sidebarProvider.addMessage('bot', `${response}\n\nTask Failed: ${e.message}`);
@@ -80,8 +86,16 @@ export function activate(context: vscode.ExtensionContext) {
                         }
                     } else {
                         sidebarProvider.addMessage('bot', response);
+                        await bridge.queryMemory('stm_add', { entry: { role: 'assistant', content: response } });
                         break;
                     }
+                }
+
+                // Check for summarization (every 10 messages for simplicity in skeleton)
+                const stm = await bridge.queryMemory('stm', { key: 'role', value: 'user' });
+                if (stm.length > 10) {
+                    const summary = await model.generate('Summarize our conversation so far in 1-2 sentences.');
+                    await bridge.queryMemory('stm_summarize', { text: summary });
                 }
             } catch (error: any) {
                 vscode.window.showErrorMessage(`Achilles Error: ${error.message}`);

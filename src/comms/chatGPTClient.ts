@@ -9,6 +9,10 @@ export class ChatGPTClient {
         this.baseURL = baseURL;
     }
 
+    setBaseURL(url: string) {
+        this.baseURL = url;
+    }
+
     async chat(messages: any[], model: string = 'codellama', temperature: number = 0.7): Promise<string> {
         try {
             const response = await axios.post(`${this.baseURL}/chat/completions`, {

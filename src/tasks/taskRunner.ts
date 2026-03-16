@@ -1,19 +1,25 @@
 import * as vscode from 'vscode';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { EditorTools } from './editorTools';
 
 const execAsync = promisify(exec);
 
 export interface Task {
-    type: 'shell' | 'edit';
+    type: 'shell' | 'edit' | 'diagnostics' | 'symbols';
     command?: string;
     filePath?: string;
     content?: string;
+    query?: string;
 }
 
 export class TaskRunner {
     public async run(task: Task): Promise<string> {
-        if (task.type === 'shell' && task.command) {
+        if (task.type === 'diagnostics' && task.filePath) {
+            return EditorTools.getDiagnostics(vscode.Uri.file(task.filePath));
+        } else if (task.type === 'symbols' && task.query) {
+            return EditorTools.getSymbols(task.query);
+        } else if (task.type === 'shell' && task.command) {
             const confirmation = await vscode.window.showInformationMessage(
                 `Achilles wants to run a shell command: \`${task.command}\`. Do you allow this?`,
                 'Allow', 'Deny'

@@ -35,6 +35,18 @@ class ShortTermMemory:
         if os.path.exists(self.storage_path):
             os.remove(self.storage_path)
 
+    def summarize(self, summary_text: str):
+        """
+        Condense short-term memory by replacing old entries with a summary.
+        """
+        if len(self.memory) < 2:
+            return
+
+        # Keep last 5 entries, replace others with summary
+        keep_count = min(len(self.memory), 5)
+        self.memory = [{"role": "system", "content": f"Summary of previous chat: {summary_text}"}] + self.memory[-keep_count:]
+        self._persist()
+
     def _persist(self):
         try:
             os.makedirs(os.path.dirname(self.storage_path), exist_ok=True)
