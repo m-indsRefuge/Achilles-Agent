@@ -52,6 +52,8 @@ def train_model(
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+
+    # Load model with potential 4-bit/8-bit quantization in real scenarios
     model = AutoModelForCausalLM.from_pretrained(model_name)
     model.to(device)
 

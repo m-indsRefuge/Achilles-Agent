@@ -6,8 +6,10 @@ import { SidebarProvider } from './ui/sidebarProvider';
 import { ProjectAnalyzer } from './project/analyzer';
 import { FileWatcher } from './project/fileWatcher';
 import { TaskRunner } from './tasks/taskRunner';
+import { AutomationManager } from './tasks/automation';
 import { ReRanker } from './ai/reRanker/reRankerInterface';
 import { AchillesMCPServer } from './comms/mcpServer';
+import { InlineCompletionProvider } from './ui/inlineSuggestions';
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('Achilles Agent is now active!');
@@ -23,11 +25,15 @@ export function activate(context: vscode.ExtensionContext) {
     const fileWatcher = new FileWatcher(analyzer);
     const mcpServer = new AchillesMCPServer(bridge);
     const taskRunner = new TaskRunner();
+    const automationManager = new AutomationManager(taskRunner, model);
     const reranker = new ReRanker();
 
     const sidebarProvider = new SidebarProvider(context.extensionUri);
+    const inlineProvider = new InlineCompletionProvider(model, bridge);
+
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(SidebarProvider.viewType, sidebarProvider),
+        vscode.languages.registerInlineCompletionItemProvider({ pattern: '**' }, inlineProvider),
         bridge,
         fileWatcher
     );
@@ -97,11 +103,21 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    context.subscriptions.push(askCommand, clearMemoryCommand, analyzeCommand);
+    let workflowCommand = vscode.commands.registerCommand('achilles.runWorkflow', async () => {
+        const goal = await vscode.window.showInputBox({ prompt: 'Enter workflow goal (e.g. Refactor API)' });
+        if (goal) {
+            sidebarProvider.addMessage('user', `Goal: ${goal}`);
+            const results = await automationManager.runWorkflow(goal);
+            results.forEach(res => sidebarProvider.addMessage('bot', res));
+        }
+    });
+
+    context.subscriptions.push(askCommand, clearMemoryCommand, analyzeCommand, workflowCommand);
 
     // Initial actions
     analyzer.analyzeWorkspace().catch(e => console.error('Initial analysis failed:', e));
-    mcpServer.run().catch(e => console.error('MCP Server failed to start:', e));
+    // In VS Code, we avoid running Stdio MCP server directly in the extension process.
+    // mcpServer.run().catch(e => console.error('MCP Server failed to start:', e));
 }
 
 export function deactivate() {}

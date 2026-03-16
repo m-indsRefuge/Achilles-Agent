@@ -30,6 +30,10 @@
             {
                 "command": "achilles.analyzeProject",
                 "title": "Achilles: Analyze Project"
+            },
+            {
+                "command": "achilles.runWorkflow",
+                "title": "Achilles: Run Autonomous Workflow"
             }
         ],
         "viewsContainers": {
@@ -54,7 +58,7 @@
     "scripts": {
         "vscode:prepublish": "npm run compile",
         "compile": "tsc -p ./ && npm run copy-python",
-        "copy-python": "cp src/*.py out/ && cp -r src/memory_layer out/",
+        "copy-python": "node scripts/copy-python.js",
         "watch": "tsc -watch -p ./",
         "pretest": "npm run compile && npm run lint",
         "lint": "eslint src --ext ts",

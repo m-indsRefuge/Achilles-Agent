@@ -37,6 +37,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }
 
     private _getHtmlForWebview(webview: vscode.Webview) {
+        const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'node_modules', 'markdown-it', 'dist', 'markdown-it.min.js'));
+
         return `<!DOCTYPE html>
             <html lang="en">
             <head>
@@ -57,7 +59,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
             <body>
                 <div id="chat"></div>
                 <input type="text" id="input" placeholder="Ask Achilles..." />
-                <script src="https://cdn.jsdelivr.net/npm/markdown-it@13.0.1/dist/markdown-it.min.js"></script>
+                <script src="${scriptUri}"></script>
                 <script>
                     const vscode = acquireVsCodeApi();
                     const chat = document.getElementById('chat');
