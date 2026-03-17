@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { PythonBridge } from '../comms/pythonBridge';
+import { ProgressManager } from '../ui/notifications';
 
 export class ProjectAnalyzer {
     private bridge: PythonBridge;
@@ -10,14 +11,21 @@ export class ProjectAnalyzer {
     }
 
     public async analyzeWorkspace(): Promise<void> {
-        const files = await vscode.workspace.findFiles(
-            '**/*.{ts,js,py,txt,md}',
-            '**/node_modules/**'
-        );
+        await ProgressManager.withProgress('Achilles: Analyzing Project', async (progress) => {
+            const files = await vscode.workspace.findFiles(
+                '**/*.{ts,js,py,txt,md}',
+                '**/node_modules/**'
+            );
 
-        for (const file of files) {
-            await this.indexFile(file.fsPath);
-        }
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                progress.report({
+                    message: `Indexing ${file.fsPath.split('/').pop()} (${i + 1}/${files.length})`,
+                    increment: (1 / files.length) * 100
+                });
+                await this.indexFile(file.fsPath);
+            }
+        });
     }
 
     public async indexFile(filePath: string): Promise<void> {
@@ -40,10 +48,14 @@ export class ProjectAnalyzer {
             }
 
             if (chunks.length > 0) {
-                await this.bridge.queryMemory('kb_add_batch', {
-                    texts: chunks,
-                    metadatas: metadatas
-                });
+                // To keep indexFile atomic but efficient, we still use a small batch internal to the file
+                const BATCH_SIZE = 20;
+                for (let j = 0; j < chunks.length; j += BATCH_SIZE) {
+                    await this.bridge.queryMemory('kb_add_batch', {
+                        texts: chunks.slice(j, j + BATCH_SIZE),
+                        metadatas: metadatas.slice(j, j + BATCH_SIZE)
+                    });
+                }
             }
         } catch (error) {
             console.error(`Error indexing file ${filePath}:`, error);

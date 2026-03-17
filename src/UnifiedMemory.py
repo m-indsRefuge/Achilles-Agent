@@ -29,6 +29,11 @@ class UnifiedMemory:
     def clear_kb_file(self, file_path):
         return self.kb.clear_file_entries(file_path)
 
+    def clear_all(self):
+        self.short_term.clear()
+        self.quick_recall.clear()
+        self.kb.clear()
+
     def query_short_term(self, key, value):
         return self.short_term.query(key, value)
 

@@ -59,6 +59,14 @@
             {
                 "command": "achilles.runWorkflow",
                 "title": "Achilles: Run Autonomous Workflow"
+            },
+            {
+                "command": "achilles.trainOnProject",
+                "title": "Achilles: Train on Project"
+            },
+            {
+                "command": "achilles.reviewFile",
+                "title": "Achilles: Review Current File"
             }
         ],
         "viewsContainers": {

@@ -77,6 +77,12 @@ class KnowledgeBase:
         """
         self.store.clear_by_path(file_path)
 
+    def clear(self):
+        """
+        Wipe the entire knowledge base.
+        """
+        self.store.clear()
+
     def search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         """
         Search for relevant entries given a query string.

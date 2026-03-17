@@ -1,8 +1,10 @@
 # src/training/training_loop.py
 
 from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments
+from peft import LoraConfig, get_peft_model, TaskType
 from datasets import Dataset
 import torch
+import os
 from typing import List, Dict
 
 
@@ -47,14 +49,26 @@ def train_model(
     epochs: int = 1,
     batch_size: int = 4,
     lr: float = 5e-5,
+    use_lora: bool = True,
     device: str = "cuda" if torch.cuda.is_available() else "cpu",
 ):
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    # Load model with potential 4-bit/8-bit quantization in real scenarios
     model = AutoModelForCausalLM.from_pretrained(model_name)
+
+    if use_lora:
+        peft_config = LoraConfig(
+            task_type=TaskType.CAUSAL_LM,
+            inference_mode=False,
+            r=8,
+            lora_alpha=32,
+            lora_dropout=0.1
+        )
+        model = get_peft_model(model, peft_config)
+        model.print_trainable_parameters()
+
     model.to(device)
 
     tokenized_dataset = prepare_dataset(dataset, tokenizer)

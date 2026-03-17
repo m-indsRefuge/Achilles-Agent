@@ -7,6 +7,7 @@ import { ProjectAnalyzer } from './project/analyzer';
 import { FileWatcher } from './project/fileWatcher';
 import { TaskRunner } from './tasks/taskRunner';
 import { AutomationManager } from './tasks/automation';
+import { CodeReviewer } from './tasks/codeReview';
 import { ReRanker } from './ai/reRanker/reRankerInterface';
 import { AchillesMCPServer } from './comms/mcpServer';
 import { InlineCompletionProvider } from './ui/inlineSuggestions';
@@ -29,6 +30,7 @@ export function activate(context: vscode.ExtensionContext) {
     const taskRunner = new TaskRunner();
     const automationManager = new AutomationManager(taskRunner, model);
     const reranker = new ReRanker(bridge);
+    const codeReviewer = new CodeReviewer(model, bridge, reranker);
 
     const sidebarProvider = new SidebarProvider(context.extensionUri);
     const inlineProvider = new InlineCompletionProvider(model, bridge);
@@ -57,11 +59,13 @@ export function activate(context: vscode.ExtensionContext) {
                 let loopCount = 0;
                 const MAX_LOOPS = 3;
 
+                const topK = config.get<number>('search.topK') || 5;
+
                 while (loopCount < MAX_LOOPS) {
                     // 1. Search Knowledge Base
-                    const kbResults = await bridge.queryMemory('kb', { text: currentInput, top_k: 10 });
+                    const kbResults = await bridge.queryMemory('kb', { text: currentInput, top_k: topK * 2 });
                     const refinedResults = await reranker.rerank(currentInput, kbResults);
-                    const topResults = refinedResults.slice(0, 5);
+                    const topResults = refinedResults.slice(0, topK);
                     const contextText = topResults.length > 0 ? topResults.map((r: any) => r.text).join('\n') : 'No relevant context found.';
 
                     // 2. Generate Response
@@ -103,8 +107,13 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    let clearMemoryCommand = vscode.commands.registerCommand('achilles.clearMemory', () => {
-        vscode.window.showInformationMessage('Achilles short-term memory cleared.');
+    let clearMemoryCommand = vscode.commands.registerCommand('achilles.clearMemory', async () => {
+        try {
+            await bridge.queryMemory('clear_all', {});
+            vscode.window.showInformationMessage('Achilles memory cleared.');
+        } catch (error: any) {
+            vscode.window.showErrorMessage(`Clear Memory Error: ${error.message}`);
+        }
     });
 
     let analyzeCommand = vscode.commands.registerCommand('achilles.analyzeProject', async () => {
@@ -126,7 +135,27 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    context.subscriptions.push(askCommand, clearMemoryCommand, analyzeCommand, workflowCommand);
+    let trainCommand = vscode.commands.registerCommand('achilles.trainOnProject', async () => {
+        const modelName = config.get<string>('ollama.model') || 'codellama';
+        vscode.window.showInformationMessage(`Achilles is training on your project using ${modelName}...`);
+        try {
+            await bridge.queryMemory('train_on_kb', { model: modelName });
+            vscode.window.showInformationMessage('Fine-tuning complete!');
+        } catch (error: any) {
+            vscode.window.showErrorMessage(`Training Error: ${error.message}`);
+        }
+    });
+
+    let reviewCommand = vscode.commands.registerCommand('achilles.reviewFile', async () => {
+        const editor = vscode.window.activeTextEditor;
+        if (editor) {
+            vscode.window.showInformationMessage(`Achilles is reviewing ${editor.document.fileName}...`);
+            const review = await codeReviewer.reviewFile(editor.document);
+            sidebarProvider.addMessage('bot', `### Code Review: ${editor.document.fileName}\n\n${review}`);
+        }
+    });
+
+    context.subscriptions.push(askCommand, clearMemoryCommand, analyzeCommand, workflowCommand, trainCommand, reviewCommand);
 
     // Initial actions
     analyzer.analyzeWorkspace().catch(e => console.error('Initial analysis failed:', e));

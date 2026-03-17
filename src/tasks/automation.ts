@@ -1,5 +1,6 @@
 import { TaskRunner, Task } from './taskRunner';
 import { ModelInterface } from '../ai/codeLlama/modelInterface';
+import { ProgressManager } from '../ui/notifications';
 
 export interface WorkflowStep {
     description: string;
@@ -16,12 +17,14 @@ export class AutomationManager {
     }
 
     public async runWorkflow(goal: string): Promise<string[]> {
-        const results: string[] = [];
-        let currentStatus = `Starting workflow for goal: ${goal}`;
-        results.push(currentStatus);
+        return await ProgressManager.withProgress(`Achilles Workflow: ${goal}`, async (progress) => {
+            const results: string[] = [];
+            let currentStatus = `Starting workflow for goal: ${goal}`;
+            results.push(currentStatus);
 
-        // Simple 3-step fixed loop for the skeleton
-        for (let i = 1; i <= 3; i++) {
+            // Simple 3-step fixed loop for the skeleton
+            for (let i = 1; i <= 3; i++) {
+                progress.report({ message: `Executing step ${i}...`, increment: 33 });
             const prompt = `Plan the next step for this goal: ${goal}. Current status: ${currentStatus}.
             Respond ONLY with a JSON task or 'DONE' if finished.
             Example: RUN_TASK: {"type": "shell", "command": "ls"}`;
@@ -48,8 +51,9 @@ export class AutomationManager {
                 results.push(`Unexpected response: ${response}`);
                 break;
             }
-        }
+            }
 
-        return results;
+            return results;
+        });
     }
 }

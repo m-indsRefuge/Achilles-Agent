@@ -39,4 +39,11 @@ if (fs.existsSync(memoryLayerSrc)) {
     copyRecursiveSync(memoryLayerSrc, memoryLayerDest);
 }
 
-console.log('Python files and memory_layer copied to out/');
+// Copy training
+const trainingSrc = path.join(srcDir, 'training');
+const trainingDest = path.join(outDir, 'training');
+if (fs.existsSync(trainingSrc)) {
+    copyRecursiveSync(trainingSrc, trainingDest);
+}
+
+console.log('Python files, memory_layer, and training copied to out/');

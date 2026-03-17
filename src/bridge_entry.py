@@ -2,6 +2,9 @@ import sys
 import json
 import os
 from UnifiedMemory import UnifiedMemory
+from training.training_loop import train_model
+from training.dataset_parser import DatasetParser
+from datasets import Dataset
 
 def main():
     # Robust path resolution
@@ -37,6 +40,8 @@ def main():
                 results = um.clear_kb_file(query.get("path", ""))
             elif layer == "kb_rerank":
                 results = um.rerank_kb(query.get("text", ""), query.get("results", []))
+            elif layer == "clear_all":
+                results = um.clear_all()
             elif layer == "stm":
                 results = um.query_short_term(query.get("key", ""), query.get("value", ""))
             elif layer == "stm_summarize":
@@ -47,6 +52,16 @@ def main():
                 results = um.query_quick_recall(query.get("embedding", []), query.get("top_k", 5))
             elif layer == "qr_add":
                 results = um.add_quick_recall(query.get("entry", {}), query.get("embedding", None))
+            elif layer == "train_on_kb":
+                # 1. Parse KB into dataset
+                parser = DatasetParser(um.kb.data)
+                instructions = parser.to_instruction_format()
+                ds = Dataset.from_list(instructions)
+
+                # 2. Start training
+                model_name = query.get("model", "sshleifer/tiny-gpt2")
+                train_model(model_name, ds, epochs=1)
+                results = {"status": "success", "message": "Training complete"}
             else:
                 results = {"error": f"Unknown layer: {layer}"}
 
