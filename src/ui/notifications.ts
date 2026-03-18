@@ -13,7 +13,20 @@ export class ProgressManager {
             title: title,
             cancellable: false
         }, async (progress) => {
-            return await task(progress);
+            try {
+                return await task(progress);
+            } catch (error: any) {
+                this.showError(`Task "${title}" failed: ${error.message}`);
+                throw error;
+            }
         });
+    }
+
+    public static showError(message: string) {
+        vscode.window.showErrorMessage(`Achilles: ${message}`);
+    }
+
+    public static showInfo(message: string) {
+        vscode.window.showInformationMessage(`Achilles: ${message}`);
     }
 }

@@ -95,7 +95,7 @@
         "watch": "tsc -watch -p ./",
         "pretest": "npm run compile && npm run lint",
         "lint": "eslint src --ext ts",
-        "test": "node ./out/test/runTest.js"
+        "test": "mocha -r ts-node/register 'tests/**/*.test.ts' --exclude 'tests/project.test.ts'"
     },
     "dependencies": {
         "@modelcontextprotocol/sdk": "^1.0.0",
@@ -103,12 +103,20 @@
         "markdown-it": "^13.0.1"
     },
     "devDependencies": {
+        "@types/chai": "^5.2.3",
         "@types/markdown-it": "^14.1.2",
+        "@types/mocha": "^10.0.10",
         "@types/node": "20.x",
+        "@types/sinon": "^21.0.0",
         "@types/vscode": "^1.80.0",
         "@typescript-eslint/eslint-plugin": "^5.59.8",
         "@typescript-eslint/parser": "^5.59.8",
+        "@vscode/test-electron": "^2.5.2",
+        "chai": "^6.2.2",
         "eslint": "^8.41.0",
+        "mocha": "^11.7.5",
+        "sinon": "^21.0.3",
+        "ts-node": "^10.9.2",
         "typescript": "^5.1.3"
     }
 }

@@ -51,6 +51,11 @@ export class PythonBridge {
             this.child.on('close', (code: number) => {
                 console.error(`Python process closed with code ${code}: ${error}`);
                 this.child = null;
+                // Auto-recovery attempt
+                setTimeout(() => {
+                    console.log('Attempting to restart Python bridge...');
+                    this.readyPromise = this.start();
+                }, 1000);
             });
         });
     }
