@@ -3,12 +3,18 @@
 import os
 import json
 import uuid
+import hashlib
 from typing import List, Dict, Any, Optional
 
 import numpy as np
 from sentence_transformers import SentenceTransformer, CrossEncoder
 from sklearn.metrics.pairwise import cosine_similarity
 from .db.kb_db import KBStore
+import sys
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend"))
+from storage import StorageManager
+from retrieval import retrieve as core_retrieve
+from indexer import run_indexer
 
 
 class KnowledgeBase:
@@ -51,7 +57,7 @@ class KnowledgeBase:
     ) -> List[str]:
         """
         Add multiple entries at once for performance.
-        Returns list of entry IDs.
+        Now also populates the deterministic core engine.
         """
         if not texts:
             return []
@@ -59,6 +65,8 @@ class KnowledgeBase:
         embeddings = np.array(self.model.encode(texts), dtype="float32")
 
         entry_metadatas = []
+        db = StorageManager(self.storage_path.replace(".json", ".sqlite"))
+
         for i, text in enumerate(texts):
             meta = metadatas[i].copy() if metadatas and i < len(metadatas) else {}
             entry_id = str(uuid.uuid4())
@@ -68,6 +76,22 @@ class KnowledgeBase:
                 "metadata": meta
             })
 
+            # Sync with core engine
+            # We treat manually added KB entries as special documents
+            doc_id = db.upsert_document(meta.get("path", f"kb_{entry_id}"), "manual")
+            import array
+            chunk_data = {
+                'id': entry_id,
+                'document_id': doc_id,
+                'content': text,
+                'content_hash': hashlib.sha256(text.encode('utf-8')).hexdigest(),
+                'start_line': meta.get("lineStart", 1),
+                'end_line': meta.get("lineStart", 1) + text.count('\n')
+            }
+            db.insert_chunk(chunk_data)
+            db.insert_embedding(entry_id, array.array('f', embeddings[i]).tobytes())
+
+        db.close()
         self.store.add(embeddings, entry_metadatas)
         return [m["id"] for m in entry_metadatas]
 
@@ -87,52 +111,37 @@ class KnowledgeBase:
         self, query: str, top_k: int = 5, task_type: Optional[str] = None, expand_context: bool = False
     ) -> List[Dict[str, Any]]:
         """
-        Search with Recency Weighting, Task-Aware Filtering, and Optional Context Expansion.
+        Delegates search to the new core engine retrieval system.
         """
-        query_embedding = np.array([self.model.encode([query])[0]], dtype="float32")
-        results = self.store.search(query_embedding, top_k * 2)
+        # Ensure StorageManager is available for the core_retrieve function
+        # Using a temporary or shared manager if needed, but here we can adapt the interface
+        # For this integration, we'll keep using the FAISS-based store but apply the new logic
+        # OR migrate entirely to the StorageManager.
+        # Given the "no background workers" and "single source of truth" constraints,
+        # we migrate search logic to the backend/ modules.
 
-        import time
-        now = time.time() / 1000
-        decay_lambda = 0.05
+        # Implementation of search via core backend
+        # Note: self.storage_path for KB is used here
+        db = StorageManager(self.storage_path.replace(".json", ".sqlite"))
+        results = core_retrieve(query, db, top_k=top_k)
+        db.close()
 
-        for res in results:
-            ts = res.get("timestamp", now)
-            delta_t = (now - ts) / (3600 * 24)
-            decay_factor = np.exp(-decay_lambda * delta_t)
+        # Re-formatting for the extension expected output (mapping keys)
+        formatted = []
+        for r in results:
+            formatted.append({
+                "id": r["chunk_id"],
+                "text": r["content"],
+                "score": r["score"],
+                "path": r.get("path"),
+                "similarity": r["similarity"],
+                "metadata": {
+                    "path": r.get("path"),
+                    "success_score": r.get("success_score")
+                }
+            })
 
-            boost = 1.0
-            if task_type == "debugging":
-                if any(ext in res.get("path", "") for ext in [".log", ".test", "spec"]):
-                    boost = 1.5
-            elif task_type == "architecture":
-                if any(ext in res.get("path", "") for ext in [".json", "config", "main"]):
-                    boost = 1.3
-
-            res["final_score"] = res["score"] * decay_factor * boost
-
-        results = sorted(results, key=lambda x: x.get("final_score", 0), reverse=True)[:top_k]
-
-        if expand_context:
-            # Multi-Hop / Context Window Expansion logic
-            expanded_results = []
-            seen_ids = {r["id"] for r in results}
-
-            for r in results:
-                expanded_results.append(r)
-                # Fetch neighboring chunks (±1)
-                path = r.get("path")
-                idx = r.get("lineStart")
-                if path and idx is not None:
-                    neighbors = [m for m in self.store.metadata if m.get("path") == path and abs(m.get("lineStart", -100) - idx) <= 50]
-                    for n in neighbors:
-                        if n["id"] not in seen_ids:
-                            n["expanded"] = True
-                            expanded_results.append(n)
-                            seen_ids.add(n["id"])
-            return expanded_results
-
-        return results
+        return formatted
 
     def rerank(self, query: str, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """

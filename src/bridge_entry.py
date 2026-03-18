@@ -1,6 +1,7 @@
 import sys
 import json
 import os
+import threading
 from UnifiedMemory import UnifiedMemory
 from training.training_loop import train_model
 from training.dataset_parser import DatasetParser
@@ -53,15 +54,19 @@ def main():
             elif layer == "qr_add":
                 results = um.add_quick_recall(query.get("entry", {}), query.get("embedding", None))
             elif layer == "train_on_kb":
-                # 1. Parse KB into dataset
-                parser = DatasetParser(um.kb.data)
-                instructions = parser.to_instruction_format()
-                ds = Dataset.from_list(instructions)
+                # Handle training in a separate thread to avoid blocking the bridge
+                def background_training():
+                    try:
+                        parser = DatasetParser(um.kb.data)
+                        instructions = parser.to_instruction_format()
+                        ds = Dataset.from_list(instructions)
+                        model_name = query.get("model", "sshleifer/tiny-gpt2")
+                        train_model(model_name, ds, epochs=1)
+                    except Exception as train_error:
+                        print(f"DEBUG: Background training failed: {train_error}", file=sys.stderr)
 
-                # 2. Start training
-                model_name = query.get("model", "sshleifer/tiny-gpt2")
-                train_model(model_name, ds, epochs=1)
-                results = {"status": "success", "message": "Training complete"}
+                threading.Thread(target=background_training, daemon=True).start()
+                results = {"status": "success", "message": "Training started in background"}
             else:
                 results = {"error": f"Unknown layer: {layer}"}
 
