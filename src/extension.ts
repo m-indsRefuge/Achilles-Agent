@@ -50,12 +50,22 @@ export function activate(context: vscode.ExtensionContext) {
 
         if (input) {
             try {
+                // Get Editor Context
+                const editor = vscode.window.activeTextEditor;
+                let contextInput = input;
+                if (editor) {
+                    const selection = editor.document.getText(editor.selection);
+                    contextInput = `[File: ${editor.document.fileName}, Language: ${editor.document.languageId}]\n` +
+                                 (selection ? `[Selected Code: ${selection}]\n` : "") +
+                                 input;
+                }
+
                 sidebarProvider.addMessage('user', input);
 
                 // Add to STM
-                await bridge.queryMemory('stm_add', { entry: { role: 'user', content: input } });
+                await bridge.queryMemory('stm_add', { entry: { role: 'user', content: contextInput } });
 
-                let currentInput = input;
+                let currentInput = contextInput;
                 let loopCount = 0;
                 const MAX_LOOPS = 3;
 
