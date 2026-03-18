@@ -22,12 +22,29 @@ class KBStore:
         self._load()
 
     def add(self, embeddings: np.ndarray, metadatas: List[Dict[str, Any]]):
-        faiss.normalize_L2(embeddings)
-        self.index.add(embeddings)
-        self.metadata.extend(metadatas)
-        # Cache normalized embeddings for potential index rebuilds (deletions)
-        for i in range(embeddings.shape[0]):
-            self.embeddings_cache.append(embeddings[i])
+        # Filtering to handle duplicates via content hashes
+        new_indices = []
+        existing_hashes = {m.get("content_hash") for m in self.metadata if "content_hash" in m}
+
+        for i, meta in enumerate(metadatas):
+            c_hash = meta.get("content_hash")
+            if not c_hash or c_hash not in existing_hashes:
+                new_indices.append(i)
+                if c_hash:
+                    existing_hashes.add(c_hash)
+
+        if not new_indices:
+            return
+
+        filtered_embeddings = embeddings[new_indices]
+        filtered_metadatas = [metadatas[i] for i in new_indices]
+
+        faiss.normalize_L2(filtered_embeddings)
+        self.index.add(filtered_embeddings)
+        self.metadata.extend(filtered_metadatas)
+
+        for i in range(filtered_embeddings.shape[0]):
+            self.embeddings_cache.append(filtered_embeddings[i])
         self._save()
 
     def search(self, query_embedding: np.ndarray, top_k: int = 5) -> List[Dict[str, Any]]:
@@ -41,9 +58,40 @@ class KBStore:
         for i, idx in enumerate(indices[0]):
             if idx != -1 and idx < len(self.metadata):
                 res = self.metadata[idx].copy()
-                res["score"] = float(scores[0][i])
+                # Reinforcement: incorporate usage score if available
+                usage_score = res.get("usage_score", 1.0)
+                res["score"] = float(scores[0][i]) * usage_score
                 results.append(res)
-        return results
+        return sorted(results, key=lambda x: x["score"], reverse=True)
+
+    def record_success(self, chunk_id: str):
+        """
+        Feedback loop: Increment importance of successfully used chunks.
+        """
+        for meta in self.metadata:
+            if meta["id"] == chunk_id:
+                meta["usage_score"] = meta.get("usage_score", 1.0) + 0.1
+                break
+        self._save()
+
+    def prune(self, min_score: float = 0.5):
+        """
+        Memory Pruning: remove stale, low-value chunks.
+        """
+        initial_count = len(self.metadata)
+        indices_to_keep = [
+            i for i, m in enumerate(self.metadata) if m.get("usage_score", 1.0) >= min_score
+        ]
+
+        if len(indices_to_keep) == initial_count:
+            return
+
+        self.metadata = [self.metadata[i] for i in indices_to_keep]
+        self.embeddings_cache = [self.embeddings_cache[i] for i in indices_to_keep]
+        self.index = faiss.IndexFlatIP(self.dimension)
+        if self.embeddings_cache:
+            self.index.add(np.array(self.embeddings_cache).astype('float32'))
+        self._save()
 
     def clear_by_path(self, file_path: str):
         """

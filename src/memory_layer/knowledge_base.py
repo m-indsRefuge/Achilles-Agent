@@ -83,12 +83,56 @@ class KnowledgeBase:
         """
         self.store.clear()
 
-    def search(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    def search(
+        self, query: str, top_k: int = 5, task_type: Optional[str] = None, expand_context: bool = False
+    ) -> List[Dict[str, Any]]:
         """
-        Search for relevant entries given a query string.
+        Search with Recency Weighting, Task-Aware Filtering, and Optional Context Expansion.
         """
         query_embedding = np.array([self.model.encode([query])[0]], dtype="float32")
-        return self.store.search(query_embedding, top_k)
+        results = self.store.search(query_embedding, top_k * 2)
+
+        import time
+        now = time.time() / 1000
+        decay_lambda = 0.05
+
+        for res in results:
+            ts = res.get("timestamp", now)
+            delta_t = (now - ts) / (3600 * 24)
+            decay_factor = np.exp(-decay_lambda * delta_t)
+
+            boost = 1.0
+            if task_type == "debugging":
+                if any(ext in res.get("path", "") for ext in [".log", ".test", "spec"]):
+                    boost = 1.5
+            elif task_type == "architecture":
+                if any(ext in res.get("path", "") for ext in [".json", "config", "main"]):
+                    boost = 1.3
+
+            res["final_score"] = res["score"] * decay_factor * boost
+
+        results = sorted(results, key=lambda x: x.get("final_score", 0), reverse=True)[:top_k]
+
+        if expand_context:
+            # Multi-Hop / Context Window Expansion logic
+            expanded_results = []
+            seen_ids = {r["id"] for r in results}
+
+            for r in results:
+                expanded_results.append(r)
+                # Fetch neighboring chunks (±1)
+                path = r.get("path")
+                idx = r.get("lineStart")
+                if path and idx is not None:
+                    neighbors = [m for m in self.store.metadata if m.get("path") == path and abs(m.get("lineStart", -100) - idx) <= 50]
+                    for n in neighbors:
+                        if n["id"] not in seen_ids:
+                            n["expanded"] = True
+                            expanded_results.append(n)
+                            seen_ids.add(n["id"])
+            return expanded_results
+
+        return results
 
     def rerank(self, query: str, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
