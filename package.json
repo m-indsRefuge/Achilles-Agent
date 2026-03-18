@@ -1,0 +1,126 @@
+{
+    "name": "achilles-agent",
+    "displayName": "Achilles Agent",
+    "description": "An AI-powered development agent with long-term memory.",
+    "version": "0.0.1",
+    "publisher": "AchillesAI",
+    "engines": {
+        "vscode": "^1.80.0"
+    },
+    "categories": [
+        "Programming Languages",
+        "AI"
+    ],
+    "activationEvents": [
+        "onCommand:achilles.ask",
+        "onCommand:achilles.clearMemory",
+        "onCommand:achilles.analyzeProject",
+        "onCommand:achilles.runWorkflow",
+        "onCommand:achilles.trainOnProject",
+        "onCommand:achilles.reviewFile",
+        "onView:achilles.sidebar"
+    ],
+    "main": "./out/extension.js",
+    "contributes": {
+        "configuration": {
+            "title": "Achilles Agent",
+            "properties": {
+                "achilles.ollama.baseURL": {
+                    "type": "string",
+                    "default": "http://localhost:11434/v1",
+                    "description": "Base URL for the Ollama (or OpenAI compatible) API."
+                },
+                "achilles.ollama.model": {
+                    "type": "string",
+                    "default": "codellama",
+                    "description": "Model to use for text generation."
+                },
+                "achilles.ollama.embeddingModel": {
+                    "type": "string",
+                    "default": "nomic-embed-text",
+                    "description": "Model to use for embeddings."
+                },
+                "achilles.search.topK": {
+                    "type": "integer",
+                    "default": 5,
+                    "description": "Number of context results to retrieve from the Knowledge Base."
+                }
+            }
+        },
+        "commands": [
+            {
+                "command": "achilles.ask",
+                "title": "Achilles: Ask a Question"
+            },
+            {
+                "command": "achilles.clearMemory",
+                "title": "Achilles: Clear Short-term Memory"
+            },
+            {
+                "command": "achilles.analyzeProject",
+                "title": "Achilles: Analyze Project"
+            },
+            {
+                "command": "achilles.runWorkflow",
+                "title": "Achilles: Run Autonomous Workflow"
+            },
+            {
+                "command": "achilles.trainOnProject",
+                "title": "Achilles: Train on Project"
+            },
+            {
+                "command": "achilles.reviewFile",
+                "title": "Achilles: Review Current File"
+            }
+        ],
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "achilles-view",
+                    "title": "Achilles Agent",
+                    "icon": "$(beaker)"
+                }
+            ]
+        },
+        "views": {
+            "achilles-view": [
+                {
+                    "id": "achilles.sidebar",
+                    "type": "webview",
+                    "name": "Achilles Chat"
+                }
+            ]
+        }
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -p ./ && npm run copy-python",
+        "copy-python": "node scripts/copy-python.js",
+        "watch": "tsc -watch -p ./",
+        "pretest": "npm run compile && npm run lint",
+        "lint": "eslint src --ext ts",
+        "test": "mocha -r ts-node/register 'tests/**/*.test.ts' --exclude 'tests/project.test.ts'"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.0.0",
+        "axios": "^1.4.0",
+        "markdown-it": "^13.0.1"
+    },
+    "devDependencies": {
+        "@types/chai": "^5.2.3",
+        "@types/markdown-it": "^14.1.2",
+        "@types/mocha": "^10.0.10",
+        "@types/node": "20.x",
+        "@types/sinon": "^21.0.0",
+        "@types/vscode": "^1.80.0",
+        "@typescript-eslint/eslint-plugin": "^5.59.8",
+        "@typescript-eslint/parser": "^5.59.8",
+        "@vscode/test-electron": "^2.5.2",
+        "chai": "^6.2.2",
+        "eslint": "^8.41.0",
+        "mocha": "^11.7.5",
+        "sinon": "^21.0.3",
+        "ts-node": "^10.9.2",
+        "typescript": "^5.1.3"
+    }
+}

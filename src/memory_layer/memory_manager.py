@@ -1,4 +1,4 @@
-# src/memory_layer/MemoryManager.py
+# src/memory_layer/memory_manager.py
 
 import os
 import json
@@ -33,8 +33,10 @@ class MemoryManager:
         matches = [
             entry
             for entry in self.entries
-            if query_text.lower() in (entry["text"] or "").lower()
-            or query_text.lower() in (entry["code"] or "").lower()
+            if (
+                query_text.lower() in (entry["text"] or "").lower()
+                or query_text.lower() in (entry["code"] or "").lower()
+            )
             and (entry_type is None or entry.get("type") == entry_type)
         ]
         return matches[:top_k]

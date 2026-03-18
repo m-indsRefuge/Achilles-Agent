@@ -21,6 +21,9 @@ build/
 
 # Node.js dependencies
 node_modules/
+out/
+tests/*.js
+tests/*.js.map
 
 # OS files
 .DS_Store
@@ -30,3 +33,5 @@ Thumbs.db
 *.tmp
 *.swp
 *.swo
+*.index
+*.meta
