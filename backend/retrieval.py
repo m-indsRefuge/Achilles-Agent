@@ -44,13 +44,20 @@ def retrieve(query: str, db: StorageManager, top_k: int = 10) -> List[Dict[str, 
             similarity = 0.0
 
         # 4. Compute recency: exp(-lambda * age_seconds)
-        # last_accessed format: YYYY-MM-DD HH:MM:SS
+        # Handle SQLite TIMESTAMP strings or potential numeric timestamps
         last_time_str = chunk['last_accessed'] or chunk['created_at']
-        try:
-            import datetime
-            last_time = datetime.datetime.strptime(last_time_str, '%Y-%m-%d %H:%M:%S').timestamp()
-        except (ValueError, TypeError):
-            last_time = current_time # Fallback to new
+        if isinstance(last_time_str, (int, float)):
+             last_time = last_time_str
+        else:
+            try:
+                import datetime
+                # Handle possible formats: YYYY-MM-DD HH:MM:SS or YYYY-MM-DDTHH:MM:SS.mmmmmm
+                if 'T' in last_time_str:
+                    last_time = datetime.datetime.fromisoformat(last_time_str).timestamp()
+                else:
+                    last_time = datetime.datetime.strptime(last_time_str, '%Y-%m-%d %H:%M:%S').timestamp()
+            except (ValueError, TypeError):
+                last_time = current_time
 
         age_seconds = max(0, current_time - last_time)
         recency = math.exp(-decay_lambda * age_seconds)

@@ -129,23 +129,29 @@ def run_indexer(root_path: str, db: StorageManager):
         doc_id = db.upsert_document(path, current_hash)
 
         chunks = chunk_file(path)
+        chunk_data_list = []
+        embedding_list = []
+
         for c in chunks:
             chunk_id = compute_chunk_id(path, c.index, c.content)
-            chunk_data = {
+            chunk_data_list.append({
                 'id': chunk_id,
                 'document_id': doc_id,
                 'content': c.content,
                 'content_hash': hashlib.sha256(c.content.encode('utf-8')).hexdigest(),
                 'start_line': c.start_line,
                 'end_line': c.end_line
-            }
-            db.insert_chunk(chunk_data)
+            })
 
-            # Embed and store
+            # Embed
             vector = embed_text(c.content)
             import array
             vector_blob = array.array('f', vector).tobytes()
-            db.insert_embedding(chunk_id, vector_blob)
+            embedding_list.append((chunk_id, vector_blob))
+
+        if chunk_data_list:
+            db.insert_chunks(chunk_data_list)
+            db.insert_embeddings(embedding_list)
 
     # Handle deletions
     for path, doc_id in existing_docs.items():

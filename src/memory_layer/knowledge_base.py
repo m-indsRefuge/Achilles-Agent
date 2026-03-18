@@ -29,16 +29,29 @@ class KnowledgeBase:
         embedding_model: str = "all-MiniLM-L6-v2",
         rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
     ):
+        import logging
+        self.logger = logging.getLogger("KnowledgeBase")
         self.storage_path = storage_path
         # Embedding model
         self.model = SentenceTransformer(embedding_model)
         dimension = self.model.get_sentence_embedding_dimension()
         self.store = KBStore(storage_path, dimension=dimension)
+
+        # Core engine DB connection (persistent for extension lifecycle)
+        self.db = StorageManager(self.storage_path.replace(".json", ".sqlite"))
+
         # Re-ranker model (lazy load in real scenarios, but here for skeleton)
         try:
             self.reranker = CrossEncoder(rerank_model)
         except:
             self.reranker = None
+
+    def __del__(self):
+        if hasattr(self, 'db'):
+            try:
+                self.db.close()
+            except:
+                pass
 
     @property
     def data(self):
@@ -65,7 +78,8 @@ class KnowledgeBase:
         embeddings = np.array(self.model.encode(texts), dtype="float32")
 
         entry_metadatas = []
-        db = StorageManager(self.storage_path.replace(".json", ".sqlite"))
+        chunk_data_list = []
+        embedding_list = []
 
         for i, text in enumerate(texts):
             meta = metadatas[i].copy() if metadatas and i < len(metadatas) else {}
@@ -77,21 +91,22 @@ class KnowledgeBase:
             })
 
             # Sync with core engine
-            # We treat manually added KB entries as special documents
-            doc_id = db.upsert_document(meta.get("path", f"kb_{entry_id}"), "manual")
+            doc_id = self.db.upsert_document(meta.get("path", f"kb_{entry_id}"), "manual")
             import array
-            chunk_data = {
+            chunk_data_list.append({
                 'id': entry_id,
                 'document_id': doc_id,
                 'content': text,
                 'content_hash': hashlib.sha256(text.encode('utf-8')).hexdigest(),
                 'start_line': meta.get("lineStart", 1),
                 'end_line': meta.get("lineStart", 1) + text.count('\n')
-            }
-            db.insert_chunk(chunk_data)
-            db.insert_embedding(entry_id, array.array('f', embeddings[i]).tobytes())
+            })
+            embedding_list.append((entry_id, array.array('f', embeddings[i]).tobytes()))
 
-        db.close()
+        if chunk_data_list:
+            self.db.insert_chunks(chunk_data_list)
+            self.db.insert_embeddings(embedding_list)
+
         self.store.add(embeddings, entry_metadatas)
         return [m["id"] for m in entry_metadatas]
 
@@ -111,37 +126,30 @@ class KnowledgeBase:
         self, query: str, top_k: int = 5, task_type: Optional[str] = None, expand_context: bool = False
     ) -> List[Dict[str, Any]]:
         """
-        Delegates search to the new core engine retrieval system.
+        Delegates search to the new core engine retrieval system with error handling.
         """
-        # Ensure StorageManager is available for the core_retrieve function
-        # Using a temporary or shared manager if needed, but here we can adapt the interface
-        # For this integration, we'll keep using the FAISS-based store but apply the new logic
-        # OR migrate entirely to the StorageManager.
-        # Given the "no background workers" and "single source of truth" constraints,
-        # we migrate search logic to the backend/ modules.
+        try:
+            results = core_retrieve(query, self.db, top_k=top_k)
 
-        # Implementation of search via core backend
-        # Note: self.storage_path for KB is used here
-        db = StorageManager(self.storage_path.replace(".json", ".sqlite"))
-        results = core_retrieve(query, db, top_k=top_k)
-        db.close()
-
-        # Re-formatting for the extension expected output (mapping keys)
-        formatted = []
-        for r in results:
-            formatted.append({
-                "id": r["chunk_id"],
-                "text": r["content"],
-                "score": r["score"],
-                "path": r.get("path"),
-                "similarity": r["similarity"],
-                "metadata": {
+            # Re-formatting for the extension expected output (mapping keys)
+            formatted = []
+            for r in results:
+                formatted.append({
+                    "id": r["chunk_id"],
+                    "text": r["content"],
+                    "score": r["score"],
                     "path": r.get("path"),
-                    "success_score": r.get("success_score")
-                }
-            })
+                    "similarity": r["similarity"],
+                    "metadata": {
+                        "path": r.get("path"),
+                        "success_score": r.get("success_score")
+                    }
+                })
 
-        return formatted
+            return formatted
+        except Exception as e:
+            self.logger.error(f"Search failed: {e}")
+            return []
 
     def rerank(self, query: str, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """

@@ -1,6 +1,7 @@
 import sqlite3
 import os
 import time
+import threading
 from typing import List, Dict, Any, Optional
 
 class StorageManager:
@@ -10,6 +11,7 @@ class StorageManager:
     """
     def __init__(self, db_path: str):
         self.db_path = db_path
+        self.lock = threading.Lock()
         parent_dir = os.path.dirname(self.db_path)
         if parent_dir:
             os.makedirs(parent_dir, exist_ok=True)
@@ -73,18 +75,19 @@ class StorageManager:
         self.conn.commit()
 
     def upsert_document(self, path: str, content_hash: str) -> int:
-        cursor = self.conn.cursor()
-        cursor.execute("""
-            INSERT INTO documents (path, content_hash, last_indexed)
-            VALUES (?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(path) DO UPDATE SET
-                content_hash=excluded.content_hash,
-                last_indexed=excluded.last_indexed
-        """, (path, content_hash))
-        self.conn.commit()
+        with self.lock:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                INSERT INTO documents (path, content_hash, last_indexed)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(path) DO UPDATE SET
+                    content_hash=excluded.content_hash,
+                    last_indexed=excluded.last_indexed
+            """, (path, content_hash))
+            self.conn.commit()
 
-        cursor.execute("SELECT id FROM documents WHERE path = ?", (path,))
-        return cursor.fetchone()[0]
+            cursor.execute("SELECT id FROM documents WHERE path = ?", (path,))
+            return cursor.fetchone()[0]
 
     def get_document_by_path(self, path: str) -> Optional[Dict[str, Any]]:
         cursor = self.conn.cursor()
@@ -95,29 +98,49 @@ class StorageManager:
         return None
 
     def insert_chunk(self, chunk: Dict[str, Any]):
-        cursor = self.conn.cursor()
-        cursor.execute("""
-            INSERT INTO chunks (id, document_id, content, content_hash, start_line, end_line, is_active)
-            VALUES (?, ?, ?, ?, ?, ?, 1)
-            ON CONFLICT(id) DO UPDATE SET is_active=1
-        """, (
-            chunk['id'], chunk['document_id'], chunk['content'],
-            chunk['content_hash'], chunk['start_line'], chunk['end_line']
-        ))
+        self.insert_chunks([chunk])
 
-        # Initialize stats if not present
-        cursor.execute("INSERT OR IGNORE INTO retrieval_stats (chunk_id) VALUES (?)", (chunk['id'],))
-        self.conn.commit()
+    def insert_chunks(self, chunks: List[Dict[str, Any]]):
+        with self.lock:
+            cursor = self.conn.cursor()
+            try:
+                for chunk in chunks:
+                    cursor.execute("""
+                        INSERT INTO chunks (id, document_id, content, content_hash, start_line, end_line, is_active)
+                        VALUES (?, ?, ?, ?, ?, ?, 1)
+                        ON CONFLICT(id) DO UPDATE SET is_active=1
+                    """, (
+                        chunk['id'], chunk['document_id'], chunk['content'],
+                        chunk['content_hash'], chunk['start_line'], chunk['end_line']
+                    ))
+                    cursor.execute("INSERT OR IGNORE INTO retrieval_stats (chunk_id) VALUES (?)", (chunk['id'],))
+                self.conn.commit()
+            except sqlite3.Error as e:
+                self.conn.rollback()
+                raise e
 
     def deactivate_chunks_for_document(self, document_id: int):
-        cursor = self.conn.cursor()
-        cursor.execute("UPDATE chunks SET is_active = 0 WHERE document_id = ?", (document_id,))
-        self.conn.commit()
+        with self.lock:
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute("UPDATE chunks SET is_active = 0 WHERE document_id = ?", (document_id,))
+                self.conn.commit()
+            except sqlite3.Error as e:
+                self.conn.rollback()
+                raise e
 
     def insert_embedding(self, chunk_id: str, vector_blob: bytes):
-        cursor = self.conn.cursor()
-        cursor.execute("INSERT OR REPLACE INTO embeddings (chunk_id, vector) VALUES (?, ?)", (chunk_id, vector_blob))
-        self.conn.commit()
+        self.insert_embeddings([(chunk_id, vector_blob)])
+
+    def insert_embeddings(self, embeddings: List[tuple]):
+        with self.lock:
+            cursor = self.conn.cursor()
+            try:
+                cursor.executemany("INSERT OR REPLACE INTO embeddings (chunk_id, vector) VALUES (?, ?)", embeddings)
+                self.conn.commit()
+            except sqlite3.Error as e:
+                self.conn.rollback()
+                raise e
 
     def fetch_active_chunks(self) -> List[Dict[str, Any]]:
         cursor = self.conn.cursor()
@@ -137,16 +160,17 @@ class StorageManager:
         ]
 
     def update_retrieval_stats(self, chunk_id: str, used: bool):
-        cursor = self.conn.cursor()
-        score_delta = 1.0 if used else -0.1
-        cursor.execute("""
-            UPDATE retrieval_stats
-            SET retrieval_count = retrieval_count + 1,
-                success_score = MAX(0.1, success_score + ?),
-                last_accessed = CURRENT_TIMESTAMP
-            WHERE chunk_id = ?
-        """, (score_delta, chunk_id))
-        self.conn.commit()
+        with self.lock:
+            cursor = self.conn.cursor()
+            score_delta = 1.0 if used else -0.1
+            cursor.execute("""
+                UPDATE retrieval_stats
+                SET retrieval_count = retrieval_count + 1,
+                    success_score = MAX(0.1, success_score + ?),
+                    last_accessed = CURRENT_TIMESTAMP
+                WHERE chunk_id = ?
+            """, (score_delta, chunk_id))
+            self.conn.commit()
 
     def close(self):
         self.conn.close()
