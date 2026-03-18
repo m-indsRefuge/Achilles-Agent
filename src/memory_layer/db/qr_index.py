@@ -17,6 +17,7 @@ class QRStore:
         self.dimension = dimension
         self.index = faiss.IndexFlatIP(self.dimension)
         self.metadata: List[Dict[str, Any]] = []
+        self.embeddings_cache: List[np.ndarray] = []
 
         self._load()
 
@@ -24,14 +25,20 @@ class QRStore:
         faiss.normalize_L2(embedding)
         self.index.add(embedding)
         self.metadata.append(entry)
+        self.embeddings_cache.append(embedding.flatten())
 
         # Limit QR size to 100 recent entries
         if self.index.ntotal > 100:
             # Simple approach: clear and rebuild from last 100
             self.metadata = self.metadata[-100:]
-            # Rebuilding would require original embeddings, for now we just
-            # let the index grow slightly or clear it occasionally.
-            pass
+            self.embeddings_cache = self.embeddings_cache[-100:]
+
+            # Rebuild index
+            self.index = faiss.IndexFlatIP(self.dimension)
+            if self.embeddings_cache:
+                embeddings_matrix = np.array(self.embeddings_cache).astype('float32')
+                self.index.add(embeddings_matrix)
+
         self._save()
 
     def query(self, query_embedding: np.ndarray, top_k: int = 5) -> List[Dict[str, Any]]:
@@ -66,6 +73,11 @@ class QRStore:
     def _load(self):
         if os.path.exists(self.index_path):
             self.index = faiss.read_index(self.index_path)
+            if self.index.ntotal > 0:
+                try:
+                    self.embeddings_cache = [self.index.reconstruct(i) for i in range(self.index.ntotal)]
+                except:
+                    pass
         if os.path.exists(self.meta_path):
             with open(self.meta_path, "r", encoding="utf-8") as f:
                 self.metadata = json.load(f)

@@ -24,10 +24,10 @@ class KnowledgeBase:
         rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
     ):
         self.storage_path = storage_path
-        self.store = KBStore(storage_path)
-
         # Embedding model
         self.model = SentenceTransformer(embedding_model)
+        dimension = self.model.get_sentence_embedding_dimension()
+        self.store = KBStore(storage_path, dimension=dimension)
         # Re-ranker model (lazy load in real scenarios, but here for skeleton)
         try:
             self.reranker = CrossEncoder(rerank_model)

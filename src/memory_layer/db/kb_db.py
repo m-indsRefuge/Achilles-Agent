@@ -9,12 +9,12 @@ class KBStore:
     FAISS-based storage for the Knowledge Base.
     Handles vector indexing and metadata mapping with data integrity.
     """
-    def __init__(self, storage_path: str):
+    def __init__(self, storage_path: str, dimension: int = 384):
         self.storage_path = storage_path
         self.index_path = storage_path + ".index"
         self.meta_path = storage_path + ".meta"
 
-        self.dimension = 384  # Default for all-MiniLM-L6-v2
+        self.dimension = dimension
         self.index = faiss.IndexFlatIP(self.dimension)
         self.metadata: List[Dict[str, Any]] = []
         self.embeddings_cache: List[np.ndarray] = []

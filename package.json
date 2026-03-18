@@ -14,7 +14,11 @@
     "activationEvents": [
         "onCommand:achilles.ask",
         "onCommand:achilles.clearMemory",
-        "onCommand:achilles.analyzeProject"
+        "onCommand:achilles.analyzeProject",
+        "onCommand:achilles.runWorkflow",
+        "onCommand:achilles.trainOnProject",
+        "onCommand:achilles.reviewFile",
+        "onView:achilles.sidebar"
     ],
     "main": "./out/extension.js",
     "contributes": {
