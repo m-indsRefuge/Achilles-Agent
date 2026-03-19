@@ -15,8 +15,8 @@ import sys
 # Works in both dev (src/) and build (out/)
 current_dir = os.path.dirname(os.path.abspath(__file__))
 paths_to_check = [
-    os.path.join(os.path.dirname(current_dir), "backend"),
-    os.path.join(os.path.dirname(os.path.dirname(current_dir)), "backend")
+    os.path.join(os.path.dirname(current_dir), "core"),
+    os.path.join(os.path.dirname(os.path.dirname(current_dir)), "core")
 ]
 for p in paths_to_check:
     if os.path.exists(p):

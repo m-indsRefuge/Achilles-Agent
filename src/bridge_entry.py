@@ -6,13 +6,13 @@ from UnifiedMemory import UnifiedMemory
 from training.training_loop import train_model
 from training.dataset_parser import DatasetParser
 
-# Add backend to path for core engine access
+# Add core to path for core engine access
 # Works in both dev (src/) and build (out/)
 current_dir = os.path.dirname(os.path.abspath(__file__))
 # Check sibling (for out/) and parent's sibling (for src/)
 paths_to_check = [
-    os.path.join(current_dir, "backend"),
-    os.path.join(os.path.dirname(current_dir), "backend")
+    os.path.join(current_dir, "core"),
+    os.path.join(os.path.dirname(current_dir), "core")
 ]
 for p in paths_to_check:
     if os.path.exists(p):

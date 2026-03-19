@@ -2,6 +2,7 @@ import os
 import hashlib
 from typing import List, Dict, Any, Optional
 from storage import StorageManager
+from embedding import embed_text
 
 class Chunk:
     def __init__(self, content: str, start_line: int, end_line: int, index: int):
@@ -99,10 +100,6 @@ def compute_chunk_id(file_path: str, chunk_index: int, content: str) -> str:
     raw = f"{file_path}{chunk_index}{normalized_content}"
     return hashlib.sha256(raw.encode('utf-8')).hexdigest()
 
-def embed_text(text: str) -> List[float]:
-    """Deterministic stub embedding (no randomness)."""
-    h = hashlib.sha256(text.encode('utf-8')).digest()
-    return [float(b) / 255.0 for b in h[:32]] # 32-dim stub
 
 def run_indexer(root_path: str, db: StorageManager):
     """The indexing pipeline."""
