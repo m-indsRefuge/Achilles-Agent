@@ -30,7 +30,7 @@ def main():
     um = UnifiedMemory(
         os.path.join(storage_dir, "short_term_memory.db"),
         os.path.join(storage_dir, "quick_recall.json"),
-        os.path.join(storage_dir, "knowledge_base.json")
+        os.path.join(storage_dir, "knowledge_base.sqlite")
     )
 
     print(json.dumps({"status": "ready"}), flush=True)

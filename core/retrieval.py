@@ -6,6 +6,7 @@ from typing import List, Dict, Any
 from storage import StorageManager
 from embedding import embed_query
 from feedback import log_event, RetrievalEvent
+from scoring import RetrievalScorer
 
 def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
     """Compute cosine similarity between two vectors."""
@@ -41,8 +42,8 @@ def retrieve(query: str, db: StorageManager, top_k: int = 10) -> List[Dict[str, 
                 merged_results.append(r)
                 seen_ids.add(r['chunk_id'])
 
-        # Re-rank using original scoring function
-        merged_results.sort(key=lambda x: x['score'], reverse=True)
+        # Re-rank using scoring engine (sorting by score.final)
+        merged_results.sort(key=lambda x: x['score']['final'] if isinstance(x['score'], dict) else x['score'], reverse=True)
         top_results = merged_results[:top_k]
     else:
         top_results = hop1_results
@@ -50,18 +51,14 @@ def retrieve(query: str, db: StorageManager, top_k: int = 10) -> List[Dict[str, 
     # Step 6: Context Expansion & Stitching
     final_results = []
     for r in top_results:
-        # Fetch the full chunk data from DB if needed for expansion
-        # but retrieve_no_event already returns content. We need doc_id and lines.
-        # Let's ensure retrieve_no_event returns these.
-
         # Expansion
         neighbors = expand_context(r, db, window_size=1)
         stitched_content = stitch_chunks(neighbors)
 
         final_results.append({
             "chunk_id": r["chunk_id"],
+            "text": r.get("content", ""),
             "score": r["score"],
-            "similarity": r.get("similarity", 0.0),
             "context": stitched_content,
             "source_path": r.get("path"),
             "hop": r.get("hop", 1)
@@ -75,15 +72,14 @@ def retrieve(query: str, db: StorageManager, top_k: int = 10) -> List[Dict[str, 
     return final_results
 
 def retrieve_no_event(query: str, db: StorageManager, top_k: int = 10) -> List[Dict[str, Any]]:
-    """Ranked retrieval using similarity + recency + success score without side-effects."""
+    """Ranked retrieval using the Scoring Engine without side-effects."""
     # 1. Keywords extraction for pre-filtering
-    keywords = re.findall(r'\w{4,}', query) # Simple keyword extraction
+    keywords = re.findall(r'\w{4,}', query)
 
     # 2. Fetch candidates (Filtered or Full Scan)
     candidates = []
     if keywords:
-        # Try pre-filtering by keywords
-        for kw in keywords[:3]: # Limit keywords for speed
+        for kw in keywords[:3]:
             candidates.extend(db.search_chunks_by_keyword(kw, limit=100))
 
     if not candidates:
@@ -92,7 +88,7 @@ def retrieve_no_event(query: str, db: StorageManager, top_k: int = 10) -> List[D
     if not candidates:
         return []
 
-    # Deduplicate candidates if multiple keywords matched
+    # Deduplicate candidates
     seen_cand = {}
     for c in candidates:
         seen_cand[c['id']] = c
@@ -101,61 +97,34 @@ def retrieve_no_event(query: str, db: StorageManager, top_k: int = 10) -> List[D
     # 3. Embed query
     query_vector = embed_query(query)
 
-    current_time = time.time()
-    decay_lambda = 1e-5
-
+    scorer = RetrievalScorer()
     results = []
+
     for chunk in candidates:
         # Convert BLOB back to vector
         chunk_vector = list(array.array('f', chunk['vector']))
 
-        # 4. Compute similarity
-        similarity = sum(a * b for a, b in zip(query_vector, chunk_vector))
-        mag_q = math.sqrt(sum(a*a for a in query_vector))
-        mag_c = math.sqrt(sum(a*a for a in chunk_vector))
-        if mag_q and mag_c:
-            similarity /= (mag_q * mag_c)
-        else:
-            similarity = 0.0
+        # 4. Compute similarity for the scorer
+        similarity = cosine_similarity(query_vector, chunk_vector)
 
-        # 5. Compute recency: exp(-lambda * age_seconds)
-        last_time_str = chunk['last_accessed'] or chunk['created_at']
-        if isinstance(last_time_str, (int, float)):
-             last_time = last_time_str
-        else:
-            try:
-                import datetime
-                if 'T' in last_time_str:
-                    last_time = datetime.datetime.fromisoformat(last_time_str).timestamp()
-                else:
-                    last_time = datetime.datetime.strptime(last_time_str, '%Y-%m-%d %H:%M:%S').timestamp()
-            except (ValueError, TypeError):
-                last_time = current_time
-
-        age_seconds = max(0, current_time - last_time)
-        recency = math.exp(-decay_lambda * age_seconds)
-
-        # 6. Success score
-        success_score = chunk['success_score']
-
-        # 7. Final Score: (sim * 0.7) + (recency * 0.2) + (success_score * 0.1)
-        score = (similarity * 0.7) + (recency * 0.2) + (success_score * 0.1)
+        # 5. Delegate scoring to the engine (Single source of truth)
+        score_data = scorer.score(chunk, query_vector, metadata={"raw_similarity": similarity})
 
         results.append({
             'chunk_id': chunk['id'],
             'content': chunk['content'],
-            'score': score,
-            'similarity': similarity,
-            'recency': recency,
-            'success_score': success_score,
+            'score': {
+                'final': score_data['final_score'],
+                'components': score_data['components']
+            },
             'path': chunk.get('path'),
             'document_id': chunk.get('document_id'),
             'start_line': chunk.get('start_line'),
             'end_line': chunk.get('end_line')
         })
 
-    # 8. Ranking Pipeline: sort descending
-    results.sort(key=lambda x: x['score'], reverse=True)
+    # 6. Ranking Pipeline: sort descending by final score
+    results.sort(key=lambda x: x['score']['final'], reverse=True)
     return results[:top_k]
 
 def expand_context(chunk: Dict[str, Any], db: StorageManager, window_size: int = 1) -> List[Dict[str, Any]]:

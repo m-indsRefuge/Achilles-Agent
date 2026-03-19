@@ -170,14 +170,19 @@ class StorageManager:
     def update_retrieval_stats(self, chunk_id: str, used: bool):
         with self.lock:
             cursor = self.conn.cursor()
+            # success_score with logarithmic scaling to prevent unbounded growth/bias
+            # and min floor of 0.1
             score_delta = 1.0 if used else -0.1
             cursor.execute("""
                 UPDATE retrieval_stats
                 SET retrieval_count = retrieval_count + 1,
-                    success_score = MAX(0.1, success_score + ?),
+                    success_score = CASE
+                        WHEN ? > 0 THEN MIN(20.0, success_score + ?)
+                        ELSE MAX(0.1, success_score + ?)
+                    END,
                     last_accessed = CURRENT_TIMESTAMP
                 WHERE chunk_id = ?
-            """, (score_delta, chunk_id))
+            """, (score_delta, score_delta, score_delta, chunk_id))
             self.conn.commit()
 
     def insert_retrieval_event(self, query: str, retrieved_ids: List[str], selected_ids: List[str]):
