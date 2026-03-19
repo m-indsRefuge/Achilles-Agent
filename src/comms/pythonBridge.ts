@@ -17,8 +17,13 @@ export class PythonBridge {
     private async start(): Promise<void> {
         return new Promise((resolve, reject) => {
             const pythonSrcDir = path.dirname(this.scriptPath);
+            const backendDir = path.join(pythonSrcDir, 'backend');
+            const pythonPathEnv = process.env.PYTHONPATH
+                ? `${pythonSrcDir}:${backendDir}:${process.env.PYTHONPATH}`
+                : `${pythonSrcDir}:${backendDir}`;
+
             this.child = spawn(this.pythonPath, [this.scriptPath], {
-                env: { ...process.env, PYTHONPATH: pythonSrcDir }
+                env: { ...process.env, PYTHONPATH: pythonPathEnv }
             });
 
             let error = '';

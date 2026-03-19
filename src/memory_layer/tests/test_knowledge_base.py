@@ -5,7 +5,7 @@ from memory_layer.knowledge_base import KnowledgeBase
 class TestKnowledgeBase(unittest.TestCase):
 
     def setUp(self):
-        self.kb = KnowledgeBase("backend/memory_layer/storage/test_kb.json")
+        self.kb = KnowledgeBase("backend/memory_layer/storage/test_kb.sqlite")
 
     def test_add_and_search(self):
         entry_id = self.kb.add_entry("A Python function that calculates factorial.")

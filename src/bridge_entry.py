@@ -5,6 +5,20 @@ import threading
 from UnifiedMemory import UnifiedMemory
 from training.training_loop import train_model
 from training.dataset_parser import DatasetParser
+
+# Add backend to path for core engine access
+# Works in both dev (src/) and build (out/)
+current_dir = os.path.dirname(os.path.abspath(__file__))
+# Check sibling (for out/) and parent's sibling (for src/)
+paths_to_check = [
+    os.path.join(current_dir, "backend"),
+    os.path.join(os.path.dirname(current_dir), "backend")
+]
+for p in paths_to_check:
+    if os.path.exists(p):
+        sys.path.append(p)
+        break
+from indexer import run_indexer
 from datasets import Dataset
 
 def main():
@@ -53,6 +67,20 @@ def main():
                 results = um.query_quick_recall(query.get("embedding", []), query.get("top_k", 5))
             elif layer == "qr_add":
                 results = um.add_quick_recall(query.get("entry", {}), query.get("embedding", None))
+            elif layer == "run_indexer":
+                root_path = query.get("root_path")
+                file_path = query.get("file_path")
+                if root_path:
+                    run_indexer(root_path, um.kb.db)
+                    results = {"status": "success", "message": f"Project indexed: {root_path}"}
+                elif file_path:
+                    # For single file, we wrap it as a scan of its parent but only processing it
+                    # OR we could implement a more targeted function.
+                    # For now, we reuse run_indexer logic if possible or just log.
+                    run_indexer(os.path.dirname(file_path), um.kb.db)
+                    results = {"status": "success", "message": f"File indexed: {file_path}"}
+                else:
+                    results = {"error": "No path provided for run_indexer"}
             elif layer == "train_on_kb":
                 # Handle training in a separate thread to avoid blocking the bridge
                 def background_training():

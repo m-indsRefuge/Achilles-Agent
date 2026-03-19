@@ -46,4 +46,11 @@ if (fs.existsSync(trainingSrc)) {
     copyRecursiveSync(trainingSrc, trainingDest);
 }
 
-console.log('Python files, memory_layer, and training copied to out/');
+// Copy backend core engine
+const backendSrc = path.join(rootDir, 'backend');
+const backendDest = path.join(outDir, 'backend');
+if (fs.existsSync(backendSrc)) {
+    copyRecursiveSync(backendSrc, backendDest);
+}
+
+console.log('Python files, memory_layer, training, and backend copied to out/');

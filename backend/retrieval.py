@@ -16,7 +16,17 @@ def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
     return dot_product / (magnitude1 * magnitude2)
 
 def retrieve(query: str, db: StorageManager, top_k: int = 10) -> List[Dict[str, Any]]:
-    """Ranked retrieval using similarity + recency + success score."""
+    top_results = retrieve_no_event(query, db, top_k)
+
+    # 8. Feedback loop Integration: every query produces an event
+    retrieved_ids = [r['chunk_id'] for r in top_results]
+    event = RetrievalEvent(query, retrieved_ids, []) # selected_chunk_ids empty by default
+    log_event(event, db)
+
+    return top_results
+
+def retrieve_no_event(query: str, db: StorageManager, top_k: int = 10) -> List[Dict[str, Any]]:
+    """Ranked retrieval using similarity + recency + success score without side-effects."""
     # 1. Embed query
     query_vector = embed_text(query)
 
@@ -79,11 +89,4 @@ def retrieve(query: str, db: StorageManager, top_k: int = 10) -> List[Dict[str, 
 
     # 7. Ranking Pipeline: sort descending
     results.sort(key=lambda x: x['score'], reverse=True)
-    top_results = results[:top_k]
-
-    # 8. Feedback loop Integration: every query produces an event
-    retrieved_ids = [r['chunk_id'] for r in top_results]
-    event = RetrievalEvent(query, retrieved_ids, []) # selected_chunk_ids empty by default
-    log_event(event, db)
-
-    return top_results
+    return results[:top_k]
