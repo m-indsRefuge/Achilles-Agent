@@ -55,6 +55,16 @@ def main():
                 results = um.clear_kb_file(query.get("path", ""))
             elif layer == "kb_rerank":
                 results = um.rerank_kb(query.get("text", ""), query.get("results", []))
+            elif layer == "kb_stats":
+                results = um.kb.db.get_top_chunks(limit=query.get("limit", 10))
+            elif layer == "feedback":
+                event = RetrievalEvent(
+                    query=query.get("query", ""),
+                    retrieved_chunk_ids=query.get("retrieved_ids", []),
+                    selected_chunk_ids=query.get("selected_ids", [])
+                )
+                log_event(event, um.kb.db)
+                results = {"status": "success"}
             elif layer == "clear_all":
                 results = um.clear_all()
             elif layer == "stm":

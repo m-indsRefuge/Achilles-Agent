@@ -61,6 +61,7 @@ def retrieve(query: str, db: StorageManager, top_k: int = 10) -> List[Dict[str, 
         final_results.append({
             "chunk_id": r["chunk_id"],
             "score": r["score"],
+            "similarity": r.get("similarity", 0.0),
             "context": stitched_content,
             "source_path": r.get("path"),
             "hop": r.get("hop", 1)

@@ -160,12 +160,13 @@ class KnowledgeBase:
             for r in results:
                 formatted.append({
                     "id": r["chunk_id"],
-                    "text": r["content"],
+                    "text": r.get("context", r.get("content", "")),
                     "score": r["score"],
-                    "path": r.get("path"),
-                    "similarity": r["similarity"],
+                    "path": r.get("source_path") or r.get("path"),
+                    "similarity": r.get("similarity", 0.0),
+                    "hop": r.get("hop", 1),
                     "metadata": {
-                        "path": r.get("path"),
+                        "path": r.get("source_path") or r.get("path"),
                         "success_score": r.get("success_score")
                     }
                 })
