@@ -224,7 +224,7 @@ class StorageManager:
         rows = cursor.fetchall()
         return self._map_rows_to_chunks(rows, include_lines=True)
 
-    def get_chunk_neighbors(self, doc_id: int, start_line: int, n: int = 1) -> List[Dict[str, Any]]:
+    def get_chunk_neighbors(self, doc_id: int, start_line: int, n: int = 1, chunk_id: str = None) -> List[Dict[str, Any]]:
         """Fetch neighboring chunks from the same document."""
         cursor = self.conn.cursor()
 
@@ -232,26 +232,26 @@ class StorageManager:
         cursor.execute("""
             SELECT c.id, c.content, c.document_id, e.vector, s.retrieval_count, s.success_score, s.last_accessed, c.created_at, d.path, c.start_line, c.end_line
             FROM chunks c
-            JOIN embeddings e ON c.id = e.chunk_id
-            JOIN retrieval_stats s ON c.id = s.chunk_id
+            LEFT JOIN embeddings e ON c.id = e.chunk_id
+            LEFT JOIN retrieval_stats s ON c.id = s.chunk_id
             JOIN documents d ON c.document_id = d.id
             WHERE c.document_id = ? AND c.is_active = 1
-            AND c.start_line < ?
-            ORDER BY c.start_line DESC LIMIT ?
-        """, (doc_id, start_line, n))
+            AND (c.start_line < ? OR (c.start_line = ? AND c.id < ?))
+            ORDER BY c.start_line DESC, c.id DESC LIMIT ?
+        """, (doc_id, start_line, start_line, chunk_id or "", n))
         prev_chunks = cursor.fetchall()
 
         # Fetch next N
         cursor.execute("""
             SELECT c.id, c.content, c.document_id, e.vector, s.retrieval_count, s.success_score, s.last_accessed, c.created_at, d.path, c.start_line, c.end_line
             FROM chunks c
-            JOIN embeddings e ON c.id = e.chunk_id
-            JOIN retrieval_stats s ON c.id = s.chunk_id
+            LEFT JOIN embeddings e ON c.id = e.chunk_id
+            LEFT JOIN retrieval_stats s ON c.id = s.chunk_id
             JOIN documents d ON c.document_id = d.id
             WHERE c.document_id = ? AND c.is_active = 1
-            AND c.start_line > ?
-            ORDER BY c.start_line ASC LIMIT ?
-        """, (doc_id, start_line, n))
+            AND (c.start_line > ? OR (c.start_line = ? AND c.id > ?))
+            ORDER BY c.start_line ASC, c.id ASC LIMIT ?
+        """, (doc_id, start_line, start_line, chunk_id or "", n))
         next_chunks = cursor.fetchall()
 
         rows = prev_chunks[::-1] + next_chunks

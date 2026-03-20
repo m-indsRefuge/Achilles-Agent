@@ -28,7 +28,7 @@ def retrieve(query: str, db: StorageManager, top_k: int = 10) -> List[Dict[str, 
 
     # Step 3: Build enriched query
     if entities:
-        enriched_query = query + " " + " ".join(entities[:10]) # Limit entities
+        enriched_query = query + " " + " ".join(entities[:20]) # Limit entities
         # Step 4: run second retrieval
         hop2_results = retrieve_no_event(enriched_query, db, top_k)
 
@@ -144,12 +144,12 @@ def expand_context(chunk: Dict[str, Any], db: StorageManager, window_size: int =
     """Fetch neighboring chunks from the SAME document."""
     doc_id = chunk.get('document_id')
     start_line = chunk.get('start_line')
-    end_line = chunk.get('end_line')
+    chunk_id = chunk.get('chunk_id') or chunk.get('id')
 
-    if doc_id is None or start_line is None or end_line is None:
+    if doc_id is None or start_line is None:
         return [chunk]
 
-    neighbors = db.get_chunk_neighbors(doc_id, start_line, n=window_size)
+    neighbors = db.get_chunk_neighbors(doc_id, start_line, n=window_size, chunk_id=chunk_id)
 
     # Combine and sort to ensure order
     # The get_chunk_neighbors returns prev and next. We insert original in middle.
