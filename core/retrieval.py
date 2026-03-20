@@ -64,25 +64,28 @@ def retrieve(query: str, db: StorageManager, top_k: int = 10) -> List[Dict[str, 
             "hop": r.get("hop", 1)
         })
 
-    # 8. Feedback loop Integration: every query produces an event
-    retrieved_ids = [r['chunk_id'] for r in final_results]
-    event = RetrievalEvent(query, retrieved_ids, [])
-    log_event(event, db)
-
     return final_results
 
 def retrieve_no_event(query: str, db: StorageManager, top_k: int = 10) -> List[Dict[str, Any]]:
     """Ranked retrieval using the Scoring Engine without side-effects."""
     # 1. Keywords extraction for pre-filtering
-    keywords = re.findall(r'\w{4,}', query)
+    # Heuristic: prioritized words (capitalized or specific patterns)
+    keywords = re.findall(r'[A-Z][a-z0-9]+|\w{5,}', query)
 
     # 2. Fetch candidates (Filtered or Full Scan)
     candidates = []
     if keywords:
-        for kw in keywords[:3]:
-            candidates.extend(db.search_chunks_by_keyword(kw, limit=100))
+        # Use more selective keywords first
+        sorted_keywords = sorted(keywords, key=len, reverse=True)
+        for kw in sorted_keywords[:5]:
+            chunk_batch = db.search_chunks_by_keyword(kw, limit=50)
+            candidates.extend(chunk_batch)
+            if len(candidates) > 200: # Threshold for sufficient candidates
+                break
 
     if not candidates:
+        # Fallback to a broader but still somewhat limited scan if possible,
+        # or full scan if necessary for small repos.
         candidates = db.fetch_active_chunks()
 
     if not candidates:

@@ -39,8 +39,8 @@ class UnifiedMemory:
     def query_quick_recall(self, embedding, top_k=5):
         return self.quick_recall.query(embedding, top_k)
 
-    def query_kb(self, query_text, top_k=5):
-        return self.kb.search(query_text, top_k)
+    def query_kb(self, query_text, top_k=5, expand_context=False):
+        return self.kb.search(query_text, top_k, expand_context=expand_context)
 
     def rerank_kb(self, query_text, results):
         return self.kb.rerank(query_text, results)

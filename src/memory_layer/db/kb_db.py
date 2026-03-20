@@ -58,35 +58,22 @@ class KBStore:
         for i, idx in enumerate(indices[0]):
             if idx != -1 and idx < len(self.metadata):
                 res = self.metadata[idx].copy()
-                # Reinforcement: incorporate usage score if available
-                usage_score = res.get("usage_score", 1.0)
-                res["score"] = float(scores[0][i]) * usage_score
+                # DECOMMISSIONED: System A's RetrievalScorer now handles ranking
+                res["score"] = float(scores[0][i])
                 results.append(res)
         return sorted(results, key=lambda x: x["score"], reverse=True)
 
     def record_success(self, chunk_id: str):
         """
-        Feedback loop: Increment importance of successfully used chunks.
+        Feedback loop: DECOMMISSIONED in favor of System A (feedback.py)
         """
-        for meta in self.metadata:
-            if meta["id"] == chunk_id:
-                meta["usage_score"] = meta.get("usage_score", 1.0) + 0.1
-                break
-        self._save()
+        pass
 
     def prune(self, min_score: float = 0.5):
         """
-        Memory Pruning: remove stale, low-value chunks.
+        Memory Pruning: DECOMMISSIONED legacy fields
         """
-        initial_count = len(self.metadata)
-        indices_to_keep = [
-            i for i, m in enumerate(self.metadata) if m.get("usage_score", 1.0) >= min_score
-        ]
-
-        if len(indices_to_keep) == initial_count:
-            return
-
-        self.metadata = [self.metadata[i] for i in indices_to_keep]
+        pass
         self.embeddings_cache = [self.embeddings_cache[i] for i in indices_to_keep]
         self.index = faiss.IndexFlatIP(self.dimension)
         if self.embeddings_cache:

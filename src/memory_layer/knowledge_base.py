@@ -47,12 +47,66 @@ class KnowledgeBase:
         # Ensure directory exists
         os.makedirs(os.path.dirname(self.storage_path), exist_ok=True)
 
+        # Migration from legacy usage_score if knowledge_base.json exists
+        # Done before persistent DB connection to avoid lock issues during migration
+        self._migrate_legacy_data()
+
         # Core engine DB connection (persistent for extension lifecycle)
         self.db = StorageManager(self.storage_path)
 
         # Re-ranker model (lazy load)
         self.rerank_model_name = rerank_model
         self._reranker = None
+
+    def _migrate_legacy_data(self):
+        legacy_path = self.storage_path.replace(".sqlite", ".json")
+        if not os.path.exists(legacy_path):
+            return
+
+        try:
+            self.logger.info(f"Migrating legacy data from {legacy_path}")
+            with open(legacy_path, 'r', encoding='utf-8') as f:
+                legacy_data = json.load(f)
+
+            # Open temporary SQLite connection for migration
+            temp_db = StorageManager(self.storage_path)
+
+            # Map usage_score -> success_score with scale factor 10
+            for entry in legacy_data:
+                u_score = entry.get("usage_score", 1.0)
+                s_score = u_score * 10.0
+
+                meta = entry.get("metadata", {})
+                path = meta.get("path", f"legacy_{entry.get('id')}")
+
+                doc_id = temp_db.upsert_document(path, "legacy_migration")
+
+                # We can't easily recover embeddings from JSON,
+                # but we ensure the stats exist for the ID
+                chunk_data = {
+                    'id': entry.get('id', str(uuid.uuid4())),
+                    'document_id': doc_id,
+                    'content': entry.get('text', ''),
+                    'content_hash': hashlib.sha256(entry.get('text', '').encode('utf-8')).hexdigest(),
+                    'start_line': meta.get('lineStart', 1),
+                    'end_line': meta.get('lineStart', 1) + entry.get('text', '').count('\n')
+                }
+                temp_db.insert_chunk(chunk_data)
+
+                # Directly update migrated score
+                cursor = temp_db.conn.cursor()
+                cursor.execute(
+                    "UPDATE retrieval_stats SET success_score = ? WHERE chunk_id = ?",
+                    (s_score, chunk_data['id'])
+                )
+                temp_db.conn.commit()
+
+            temp_db.close()
+            # Rename legacy file to prevent re-migration
+            os.rename(legacy_path, legacy_path + ".bak")
+            self.logger.info("Legacy migration complete.")
+        except Exception as e:
+            self.logger.error(f"Migration failed: {e}")
 
     @property
     def reranker(self):
@@ -73,8 +127,14 @@ class KnowledgeBase:
     @property
     def data(self):
         # Backward compatibility for tests - Fetch active chunks from core engine
+        # Ensures all data retrieval uses the unified engine
         chunks = self.db.fetch_active_chunks()
-        return {c["id"]: {"id": c["id"], "text": c["content"]} for c in chunks}
+        return {c["id"]: {
+            "id": c["id"],
+            "text": c["content"],
+            "success_score": c.get("success_score", 1.0),
+            "last_updated": c.get("last_updated")
+        } for c in chunks}
 
     def add_entry(self, text: str, metadata: Optional[Dict[str, Any]] = None) -> str:
         """
@@ -148,26 +208,30 @@ class KnowledgeBase:
         self, query: str, top_k: int = 5, task_type: Optional[str] = None, expand_context: bool = False
     ) -> List[Dict[str, Any]]:
         """
-        Delegates search to the new core engine retrieval system with error handling.
+        Delegates search to the core engine. This is the single source of truth for retrieval.
         """
         try:
-            # We don't want to log a feedback event on every programmatic search during tests or internal scans
-            from retrieval import retrieve_no_event
-            results = retrieve_no_event(query, self.db, top_k=top_k)
+            # If we're performing a search for user UI or project analysis,
+            # we want the full multi-hop/context expansion features
+            if expand_context:
+                results = core_retrieve(query, self.db, top_k=top_k)
+            else:
+                from retrieval import retrieve_no_event
+                results = retrieve_no_event(query, self.db, top_k=top_k)
 
             # Re-formatting for the extension expected output (mapping keys)
             formatted = []
             for r in results:
+                # Core results already use RetrievalScorer.score()
                 formatted.append({
                     "id": r["chunk_id"],
                     "text": r.get("context", r.get("content", "")),
-                    "score": r["score"],
+                    "score": r["score"], # Contains {final, components}
                     "path": r.get("source_path") or r.get("path"),
-                    "similarity": r.get("similarity", 0.0),
                     "hop": r.get("hop", 1),
                     "metadata": {
                         "path": r.get("source_path") or r.get("path"),
-                        "success_score": r.get("success_score")
+                        "success_score": r.get("success_score", 1.0)
                     }
                 })
 

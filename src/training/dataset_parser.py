@@ -4,27 +4,35 @@ from typing import List, Dict
 class DatasetParser:
     """
     Parses Knowledge Base entries into training data formats for LLM fine-tuning.
+    Designed for memory efficiency in constrained (4GB RAM) environments.
     """
-    def __init__(self, kb_data: Dict):
-        self.kb_data = kb_data
+    def __init__(self, kb_data_iterator):
+        # Allow passing an iterator/generator to avoid holding all chunks in list
+        self.kb_data = kb_data_iterator
 
-    def to_instruction_format(self) -> List[Dict[str, str]]:
+    def to_instruction_format(self, max_samples: int = 1000):
         """
-        Converts indexed code/text into (instruction, input, output) format.
+        Generator for (instruction, input, output) format to save memory.
         """
-        dataset = []
-        for entry_id, entry in self.kb_data.items():
+        count = 0
+        # Check if kb_data is a dict (legacy) or items
+        items = self.kb_data.items() if hasattr(self.kb_data, 'items') else self.kb_data
+
+        for entry_id, entry in items:
+            if count >= max_samples:
+                break
+
             text = entry.get("text", "")
-            if not text:
+            if not text or len(text) < 50:
                 continue
 
-            # Simple heuristic for training data generation
-            dataset.append({
+            # Efficient sampling of training pairs
+            yield {
                 "instruction": "Explain or complete the following code snippet.",
-                "input": text[:200], # First 200 chars as input
-                "output": text
-            })
-        return dataset
+                "input": text[:150],
+                "output": text[:1024] # Limit output size for training memory
+            }
+            count += 1
 
     def save_jsonl(self, output_path: str):
         data = self.to_instruction_format()

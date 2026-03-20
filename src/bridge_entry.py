@@ -46,7 +46,11 @@ def main():
             query = request.get("query", {})
 
             if layer == "kb":
-                results = um.query_kb(query.get("text", ""), top_k=query.get("top_k", 5))
+                results = um.query_kb(
+                    query.get("text", ""),
+                    top_k=query.get("top_k", 5),
+                    expand_context=query.get("expand_context", False)
+                )
             elif layer == "kb_add":
                 results = um.add_kb(query.get("text", ""), query.get("metadata", {}))
             elif layer == "kb_add_batch":
@@ -95,8 +99,9 @@ def main():
                 # Handle training in a separate thread to avoid blocking the bridge
                 def background_training():
                     try:
+                        # Use generator for memory efficiency (4GB limit)
                         parser = DatasetParser(um.kb.data)
-                        instructions = parser.to_instruction_format()
+                        instructions = list(parser.to_instruction_format(max_samples=500))
                         ds = Dataset.from_list(instructions)
                         model_name = query.get("model", "sshleifer/tiny-gpt2")
                         train_model(model_name, ds, epochs=1)

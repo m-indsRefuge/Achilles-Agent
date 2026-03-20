@@ -11,11 +11,13 @@ class TestScoring(unittest.TestCase):
         # Higher similarity -> higher rank
         chunk = {"success_score": 1.0, "created_at": time.time()}
 
+        # Scorer uses (raw + 1.0) / 2.0 normalization
         score_high = self.scorer.score(chunk, [], metadata={"raw_similarity": 0.9})
         score_low = self.scorer.score(chunk, [], metadata={"raw_similarity": 0.3})
 
         self.assertGreater(score_high["final_score"], score_low["final_score"])
-        self.assertEqual(score_high["components"]["similarity"], 0.9)
+        # Expected similarity component: (0.9 + 1.0) / 2.0 = 0.95
+        self.assertEqual(score_high["components"]["similarity"], 0.95)
 
     def test_feedback_impact(self):
         # High feedback improves rank

@@ -72,8 +72,23 @@ export function activate(context: vscode.ExtensionContext) {
                 const topK = config.get<number>('search.topK') || 5;
 
                 while (loopCount < MAX_LOOPS) {
-                    // 1. Search Knowledge Base
-                    const kbResults = await bridge.queryMemory('kb', { text: currentInput, top_k: topK * 2 });
+                    // 1. Search Knowledge Base (with full Evolutionary path enabled)
+                    const kbResults = await bridge.queryMemory('kb', {
+                        text: currentInput,
+                        top_k: topK * 2,
+                        expand_context: true
+                    });
+
+                    // Log initial feedback: chunks were "seen" (retrieved)
+                    if (kbResults && kbResults.length > 0) {
+                        const retrievedIds = kbResults.map((r: any) => r.id);
+                        bridge.queryMemory('feedback', {
+                            query: currentInput,
+                            retrieved_ids: retrievedIds,
+                            selected_ids: [] // Initially none selected
+                        }).catch(e => console.error("Feedback error:", e));
+                    }
+
                     const refinedResults = await reranker.rerank(currentInput, kbResults);
                     const topResults = refinedResults.slice(0, topK);
                     const contextText = topResults.length > 0 ? topResults.map((r: any) => r.text).join('\n') : 'No relevant context found.';
