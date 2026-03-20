@@ -64,6 +64,16 @@ def retrieve(query: str, db: StorageManager, top_k: int = 10) -> List[Dict[str, 
             "hop": r.get("hop", 1)
         })
 
+    # 8. Feedback loop Integration
+    retrieved_ids = [r['chunk_id'] for r in final_results]
+
+    # TODO:
+    # Replace implicit selection with real user interaction signal
+    # (e.g. clicked result, accepted suggestion, etc.)
+    # For now, treat all retrieved results as "implicitly useful" to prevent incorrect penalties.
+    event = RetrievalEvent(query, retrieved_ids, retrieved_ids)
+    log_event(event, db)
+
     return final_results
 
 def retrieve_no_event(query: str, db: StorageManager, top_k: int = 10) -> List[Dict[str, Any]]:

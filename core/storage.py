@@ -169,48 +169,28 @@ class StorageManager:
         return self._map_rows_to_chunks(cursor.fetchall(), include_lines=True)
 
     def update_retrieval_stats(self, chunk_id: str, used: bool):
-        import math
         MAX_SUCCESS_SCORE = 50.0
-        DECAY_LAMBDA = 1e-6
 
         with self.lock:
             cursor = self.conn.cursor()
 
             # Fetch current state
-            cursor.execute("SELECT success_score, last_updated FROM retrieval_stats WHERE chunk_id = ?", (chunk_id,))
+            cursor.execute("SELECT success_score FROM retrieval_stats WHERE chunk_id = ?", (chunk_id,))
             row = cursor.fetchone()
             if not row:
                 return
 
-            current_score, last_updated_str = row
-            current_time = time.time()
+            current_score = row[0]
+            new_score = current_score
 
-            # 1. Apply Temporal Decay
-            last_updated = current_time
-            if last_updated_str:
-                try:
-                    import datetime
-                    if 'T' in last_updated_str:
-                        last_updated = datetime.datetime.fromisoformat(last_updated_str).timestamp()
-                    else:
-                        last_updated = datetime.datetime.strptime(last_updated_str, '%Y-%m-%d %H:%M:%S').timestamp()
-                except:
-                    last_updated = current_time
-
-            age = max(0, current_time - last_updated)
-            decay = math.exp(-DECAY_LAMBDA * age)
-            new_score = current_score * decay
-
-            # 2. Apply Update
+            # Only allow positive reinforcement
             if used:
                 new_score += 1.0
-            else:
-                new_score = max(0.1, new_score - 0.1)
 
-            # 3. Apply Hard Cap
+            # Apply Hard Cap
             new_score = min(new_score, MAX_SUCCESS_SCORE)
 
-            # 4. Persist
+            # Persist
             cursor.execute("""
                 UPDATE retrieval_stats
                 SET retrieval_count = retrieval_count + 1,

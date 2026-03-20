@@ -53,9 +53,10 @@ class TestPrecisionCorrection(unittest.TestCase):
         self.assertLessEqual(score, 50.0)
         self.assertGreater(score, 40.0)
 
-    def test_decay_behavior(self):
+    def test_no_decay_behavior(self):
+        # Verification that decay is removed as per critical fix
         doc_id = self.db.upsert_document("test.py", "hash1")
-        chunk_id = "decay_chunk"
+        chunk_id = "nodecay_chunk"
         self.db.insert_chunk({
             "id": chunk_id, "document_id": doc_id, "content": "test",
             "content_hash": "h", "start_line": 1, "end_line": 1
@@ -64,7 +65,6 @@ class TestPrecisionCorrection(unittest.TestCase):
         # Set a high initial score and old timestamp
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        # 1 day ago in seconds approx 86400. Using ISO format for SQLite
         old_time = (time.time() - 1000000) # Way back
         old_time_str = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(old_time))
 
@@ -72,7 +72,7 @@ class TestPrecisionCorrection(unittest.TestCase):
         conn.commit()
         conn.close()
 
-        # Trigger update
+        # Trigger update (retrieved but not used)
         self.db.update_retrieval_stats(chunk_id, used=False)
 
         conn = sqlite3.connect(self.db_path)
@@ -81,9 +81,8 @@ class TestPrecisionCorrection(unittest.TestCase):
         new_score = cursor.fetchone()[0]
         conn.close()
 
-        # Decay (lambda=1e-6, age=1e6 -> exp(-1) approx 0.36)
-        # 10.0 * 0.36 - 0.1 approx 3.5
-        self.assertLess(new_score, 5.0)
+        # Score should remain exactly 10.0 (no decay, no penalty)
+        self.assertEqual(new_score, 10.0)
 
     def test_bias_resistance(self):
         # High lambda to demonstrate bias resistance in test timeframe

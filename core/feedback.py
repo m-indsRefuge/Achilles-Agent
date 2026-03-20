@@ -15,7 +15,12 @@ def log_event(event: RetrievalEvent, db: StorageManager):
     db.insert_retrieval_event(event.query, event.retrieved_chunk_ids, event.selected_chunk_ids)
 
     # 2. Update retrieval_stats for each chunk (Reinforcement Learning)
-    # success_score += 1.0 if selected, else -0.1 (floor 0.1)
+    # Only positive reinforcement: success_score += 1.0 if selected
+    # Non-selected chunks remain neutral (no penalty)
     for chunk_id in event.retrieved_chunk_ids:
         used = (chunk_id in event.selected_chunk_ids)
-        db.update_retrieval_stats(chunk_id, used)
+        if used:
+            db.update_retrieval_stats(chunk_id, True)
+        else:
+            # We still notify the DB of the retrieval to increment retrieval_count
+            db.update_retrieval_stats(chunk_id, False)
