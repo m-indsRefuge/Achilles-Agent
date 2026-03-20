@@ -65,6 +65,7 @@ class StorageManager:
                 retrieval_count INTEGER DEFAULT 0,
                 success_score REAL DEFAULT 1.0,
                 last_accessed TIMESTAMP,
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(chunk_id) REFERENCES chunks(id)
             )
         """)
@@ -158,7 +159,7 @@ class StorageManager:
     def fetch_active_chunks(self) -> List[Dict[str, Any]]:
         cursor = self.conn.cursor()
         cursor.execute("""
-            SELECT c.id, c.content, c.document_id, e.vector, s.retrieval_count, s.success_score, s.last_accessed, c.created_at, d.path, c.start_line, c.end_line
+            SELECT c.id, c.content, c.document_id, e.vector, s.retrieval_count, s.success_score, s.last_accessed, c.created_at, d.path, c.start_line, c.end_line, s.last_updated
             FROM chunks c
             JOIN embeddings e ON c.id = e.chunk_id
             JOIN retrieval_stats s ON c.id = s.chunk_id
@@ -168,21 +169,56 @@ class StorageManager:
         return self._map_rows_to_chunks(cursor.fetchall(), include_lines=True)
 
     def update_retrieval_stats(self, chunk_id: str, used: bool):
+        import math
+        MAX_SUCCESS_SCORE = 50.0
+        DECAY_LAMBDA = 1e-6
+
         with self.lock:
             cursor = self.conn.cursor()
-            # success_score with logarithmic scaling to prevent unbounded growth/bias
-            # and min floor of 0.1
-            score_delta = 1.0 if used else -0.1
+
+            # Fetch current state
+            cursor.execute("SELECT success_score, last_updated FROM retrieval_stats WHERE chunk_id = ?", (chunk_id,))
+            row = cursor.fetchone()
+            if not row:
+                return
+
+            current_score, last_updated_str = row
+            current_time = time.time()
+
+            # 1. Apply Temporal Decay
+            last_updated = current_time
+            if last_updated_str:
+                try:
+                    import datetime
+                    if 'T' in last_updated_str:
+                        last_updated = datetime.datetime.fromisoformat(last_updated_str).timestamp()
+                    else:
+                        last_updated = datetime.datetime.strptime(last_updated_str, '%Y-%m-%d %H:%M:%S').timestamp()
+                except:
+                    last_updated = current_time
+
+            age = max(0, current_time - last_updated)
+            decay = math.exp(-DECAY_LAMBDA * age)
+            new_score = current_score * decay
+
+            # 2. Apply Update
+            if used:
+                new_score += 1.0
+            else:
+                new_score = max(0.1, new_score - 0.1)
+
+            # 3. Apply Hard Cap
+            new_score = min(new_score, MAX_SUCCESS_SCORE)
+
+            # 4. Persist
             cursor.execute("""
                 UPDATE retrieval_stats
                 SET retrieval_count = retrieval_count + 1,
-                    success_score = CASE
-                        WHEN ? > 0 THEN MIN(20.0, success_score + ?)
-                        ELSE MAX(0.1, success_score + ?)
-                    END,
-                    last_accessed = CURRENT_TIMESTAMP
+                    success_score = ?,
+                    last_accessed = CURRENT_TIMESTAMP,
+                    last_updated = CURRENT_TIMESTAMP
                 WHERE chunk_id = ?
-            """, (score_delta, score_delta, score_delta, chunk_id))
+            """, (new_score, chunk_id))
             self.conn.commit()
 
     def insert_retrieval_event(self, query: str, retrieved_ids: List[str], selected_ids: List[str]):
@@ -197,7 +233,7 @@ class StorageManager:
     def search_chunks_by_keyword(self, keyword: str, limit: int = 200) -> List[Dict[str, Any]]:
         cursor = self.conn.cursor()
         cursor.execute("""
-            SELECT c.id, c.content, c.document_id, e.vector, s.retrieval_count, s.success_score, s.last_accessed, c.created_at, d.path, c.start_line, c.end_line
+            SELECT c.id, c.content, c.document_id, e.vector, s.retrieval_count, s.success_score, s.last_accessed, c.created_at, d.path, c.start_line, c.end_line, s.last_updated
             FROM chunks c
             JOIN embeddings e ON c.id = e.chunk_id
             JOIN retrieval_stats s ON c.id = s.chunk_id
@@ -263,6 +299,8 @@ class StorageManager:
             if include_lines:
                 chunk["start_line"] = r[9]
                 chunk["end_line"] = r[10]
+                if len(r) > 11:
+                    chunk["last_updated"] = r[11]
             chunks.append(chunk)
         return chunks
 
