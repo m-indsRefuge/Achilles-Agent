@@ -56,15 +56,11 @@ class TestDeterministicRetrieval(unittest.TestCase):
 
         results_2 = retrieve(query, self.db, top_k=5)
 
-        ids_1 = [r['chunk_id'] for r in results_1]
-        ids_2 = [r['chunk_id'] for r in results_2]
+        # Deterministic normalization for comparison
+        def normalize(results):
+             return [(r["chunk_id"], r["score"]["final"]) for r in results]
 
-        self.assertEqual(ids_1, ids_2)
-
-        # Verify scores match exactly (rounded to 6 places)
-        scores_1 = [r['score']['final'] for r in results_1]
-        scores_2 = [r['score']['final'] for r in results_2]
-        self.assertEqual(scores_1, scores_2)
+        self.assertEqual(normalize(results_1), normalize(results_2))
 
     def test_stable_tie_breaker(self):
         """Ranking is stable even when scores are equal."""

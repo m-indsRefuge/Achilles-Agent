@@ -72,6 +72,13 @@ def retrieve(query: str, db: StorageManager, top_k: int = 10) -> List[Dict[str, 
             "hop": r.get("hop", 1)
         })
 
+    # Final Deterministic Serialization Sort
+    # Ensures consistent output ordering even if scores are identical
+    final_results.sort(key=lambda x: (
+        -(x['score']['final'] if isinstance(x['score'], dict) else x['score']),
+        x['chunk_id']
+    ))
+
     # 8. Feedback loop Integration
     retrieved_ids = [r['chunk_id'] for r in final_results]
 
