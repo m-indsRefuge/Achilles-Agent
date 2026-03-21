@@ -94,9 +94,16 @@ def chunk_file(path: str) -> List[Chunk]:
 
     return chunks
 
+def normalize_content(content: str) -> str:
+    """Ensures content canonicalization before hashing and storage."""
+    if not content:
+        return ""
+    content = content.strip().replace("\r\n", "\n")
+    return " ".join(content.split())
+
 def compute_chunk_id(file_path: str, chunk_index: int, content: str) -> str:
     """SHA256(file_path + chunk_index + normalized_content)."""
-    normalized_content = content.strip()
+    normalized_content = normalize_content(content)
     raw = f"{file_path}{chunk_index}{normalized_content}"
     return hashlib.sha256(raw.encode('utf-8')).hexdigest()
 
@@ -131,11 +138,12 @@ def run_indexer(root_path: str, db: StorageManager):
 
         for c in chunks:
             chunk_id = compute_chunk_id(path, c.index, c.content)
+            normalized_content = normalize_content(c.content)
             chunk_data_list.append({
                 'id': chunk_id,
                 'document_id': doc_id,
                 'content': c.content,
-                'content_hash': hashlib.sha256(c.content.encode('utf-8')).hexdigest(),
+                'content_hash': hashlib.sha256(normalized_content.encode('utf-8')).hexdigest(),
                 'start_line': c.start_line,
                 'end_line': c.end_line
             })

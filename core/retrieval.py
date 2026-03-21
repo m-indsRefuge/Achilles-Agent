@@ -17,8 +17,17 @@ def cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
         return 0.0
     return dot_product / (magnitude1 * magnitude2)
 
+def normalize_query(query: str) -> str:
+    """Ensures semantically equivalent inputs produce identical system behavior."""
+    if not query:
+        return ""
+    query = query.strip().lower()
+    return " ".join(query.split())
+
 def retrieve(query: str, db: StorageManager, top_k: int = 10) -> List[Dict[str, Any]]:
     """Intelligent multi-hop retrieval with context expansion."""
+    query = normalize_query(query)
+
     # Step 1: Initial Retrieval
     hop1_results = retrieve_no_event(query, db, top_k)
 
@@ -93,6 +102,8 @@ def retrieve(query: str, db: StorageManager, top_k: int = 10) -> List[Dict[str, 
 
 def retrieve_no_event(query: str, db: StorageManager, top_k: int = 10) -> List[Dict[str, Any]]:
     """Ranked retrieval using the Scoring Engine without side-effects."""
+    query = normalize_query(query)
+
     # 1. Deterministic Keywords extraction
     raw_keywords = re.findall(r'[A-Z][a-z0-9]+|\w{5,}', query)
     keywords = sorted(list(set(raw_keywords)))
@@ -195,6 +206,6 @@ def extract_entities(text: str) -> List[str]:
     # Extract capitalized tokens (identifiers)
     entities.extend(re.findall(r'\b[A-Z][a-zA-Z0-9_]+\b', text))
 
-    # Enforce deterministic order and limit
-    sorted_entities = sorted(list(set(entities)))
+    # Enforce deterministic order and limit AFTER canonicalization
+    sorted_entities = sorted(list(set(e.lower() for e in entities)))
     return sorted_entities[:10]

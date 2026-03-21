@@ -113,5 +113,37 @@ class TestDeterministicRetrieval(unittest.TestCase):
         self.assertTrue(context.find("Alpha") < context.find("Beta"))
         self.assertTrue(context.find("Beta") < context.find("Gamma"))
 
+    def test_input_canonicalization(self):
+        """Equivalent queries produce identical results."""
+        query_variants = [
+            "Process Data",
+            "process data",
+            " Process   Data "
+        ]
+
+        # Deterministic normalization for comparison
+        def normalize(results):
+             return [(r["chunk_id"], r["score"]["final"]) for r in results]
+
+        # Manually sync time for repeatability
+        fixed_time = "2024-01-01 12:00:00"
+        for cid in ["C1", "C2", "C3", "H1"]:
+            cursor = self.db.conn.cursor()
+            cursor.execute("UPDATE retrieval_stats SET last_updated=? WHERE chunk_id=?", (fixed_time, cid))
+            self.db.conn.commit()
+
+        results = [retrieve(q, self.db, top_k=5) for q in query_variants]
+        first_norm = normalize(results[0])
+
+        for i in range(1, len(results)):
+            # Sync time again before each check if log_event happened in retrieve
+            for cid in ["C1", "C2", "C3", "H1"]:
+                cursor = self.db.conn.cursor()
+                cursor.execute("UPDATE retrieval_stats SET last_updated=? WHERE chunk_id=?", (fixed_time, cid))
+                self.db.conn.commit()
+
+            variant_res = retrieve(query_variants[i], self.db, top_k=5)
+            self.assertEqual(normalize(variant_res), first_norm, f"Variant {i} failed canonicalization")
+
 if __name__ == "__main__":
     unittest.main()
