@@ -41,7 +41,7 @@ class TestPrecisionCorrection(unittest.TestCase):
 
         # Repeated positive updates
         for _ in range(100):
-            self.db.update_retrieval_stats(chunk_id, used=True)
+            self.db.update_retrieval_stats(chunk_id, signal="selected")
 
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -72,8 +72,8 @@ class TestPrecisionCorrection(unittest.TestCase):
         conn.commit()
         conn.close()
 
-        # Trigger update (retrieved but not used)
-        self.db.update_retrieval_stats(chunk_id, used=False)
+        # Trigger update (retrieved but neutral)
+        self.db.update_retrieval_stats(chunk_id, signal="neutral")
 
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()

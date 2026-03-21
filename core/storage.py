@@ -77,7 +77,8 @@ class StorageManager:
                 query TEXT,
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 retrieved_chunk_ids TEXT,
-                selected_chunk_ids TEXT
+                selected_chunk_ids TEXT,
+                dismissed_chunk_ids TEXT
             )
         """)
 
@@ -168,8 +169,15 @@ class StorageManager:
         """)
         return self._map_rows_to_chunks(cursor.fetchall(), include_lines=True)
 
-    def update_retrieval_stats(self, chunk_id: str, used: bool):
+    def update_retrieval_stats(self, chunk_id: str, signal: str = "neutral"):
+        """
+        Updates retrieval statistics based on feedback signals.
+        - selected: strong positive reinforcement (+1.0)
+        - dismissed: weak negative reinforcement (-0.2)
+        - neutral/ignored: no change
+        """
         MAX_SUCCESS_SCORE = 50.0
+        MIN_SUCCESS_SCORE = 0.1
 
         with self.lock:
             cursor = self.conn.cursor()
@@ -183,9 +191,10 @@ class StorageManager:
             current_score = row[0]
             new_score = current_score
 
-            # Only allow positive reinforcement
-            if used:
+            if signal == "selected":
                 new_score += 1.0
+            elif signal == "dismissed":
+                new_score = max(MIN_SUCCESS_SCORE, new_score - 0.2)
 
             # Apply Hard Cap
             new_score = min(new_score, MAX_SUCCESS_SCORE)
@@ -201,13 +210,13 @@ class StorageManager:
             """, (new_score, chunk_id))
             self.conn.commit()
 
-    def insert_retrieval_event(self, query: str, retrieved_ids: List[str], selected_ids: List[str]):
+    def insert_retrieval_event(self, query: str, retrieved_ids: List[str], selected_ids: List[str], dismissed_ids: Optional[List[str]] = None):
         with self.lock:
             cursor = self.conn.cursor()
             cursor.execute("""
-                INSERT INTO retrieval_events (query, retrieved_chunk_ids, selected_chunk_ids)
-                VALUES (?, ?, ?)
-            """, (query, json.dumps(retrieved_ids), json.dumps(selected_ids)))
+                INSERT INTO retrieval_events (query, retrieved_chunk_ids, selected_chunk_ids, dismissed_chunk_ids)
+                VALUES (?, ?, ?, ?)
+            """, (query, json.dumps(retrieved_ids), json.dumps(selected_ids), json.dumps(dismissed_ids or [])))
             self.conn.commit()
 
     def search_chunks_by_keyword(self, keyword: str, limit: int = 200) -> List[Dict[str, Any]]:

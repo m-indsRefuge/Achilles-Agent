@@ -29,7 +29,7 @@ class TestFeedbackCorrectness(unittest.TestCase):
         self.assertEqual(stats['success_score'], 1.0)
 
         # Simulate selection
-        event = RetrievalEvent("query", [self.chunk_id], [self.chunk_id])
+        event = RetrievalEvent("query", [self.chunk_id], [self.chunk_id], [])
         log_event(event, self.db)
 
         # Score should increase
@@ -41,7 +41,7 @@ class TestFeedbackCorrectness(unittest.TestCase):
         # Initial score is 1.0
 
         # Simulate retrieval without selection
-        event = RetrievalEvent("query", [self.chunk_id], [])
+        event = RetrievalEvent("query", [self.chunk_id], [], [])
         log_event(event, self.db)
 
         # Score should remain 1.0 (no penalty)
@@ -49,10 +49,19 @@ class TestFeedbackCorrectness(unittest.TestCase):
         self.assertEqual(stats['success_score'], 1.0)
         self.assertEqual(stats['retrieval_count'], 1)
 
+    def test_negative_reinforcement(self):
+        # Simulate dismissal
+        event = RetrievalEvent("query", [self.chunk_id], [], [self.chunk_id])
+        log_event(event, self.db)
+
+        # Score should decrease
+        stats = self.db.get_top_chunks(limit=1)[0]
+        self.assertEqual(stats['success_score'], 0.8)
+
     def test_stability_over_time(self):
         # Repeated retrieval without selection should not degrade score
         for _ in range(5):
-            event = RetrievalEvent("query", [self.chunk_id], [])
+            event = RetrievalEvent("query", [self.chunk_id], [], [])
             log_event(event, self.db)
 
         stats = self.db.get_top_chunks(limit=1)[0]

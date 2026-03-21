@@ -37,62 +37,49 @@ class TestMemorySystemBehavior(unittest.TestCase):
             cursor.execute("UPDATE retrieval_stats SET success_score=? WHERE chunk_id=?", (score, chunk_id))
             self.db.conn.commit()
 
-    def test_1_feedback_semantics_integrity(self):
-        """Verify that retrieved chunks are NOT penalized."""
-        print("\n--- TEST 1: Feedback Semantics Integrity ---")
-        self._insert_chunk("C1", "Content 1", score=10.0)
-        self._insert_chunk("C2", "Content 2", score=10.0)
-        self._insert_chunk("C3", "Content 3", score=10.0)
+    def test_1_selective_reinforcement_integrity(self):
+        """Verify that signals are applied correctly (pos, neg, neutral)."""
+        print("\n--- TEST 1: Selective Reinforcement Integrity ---")
+        self._insert_chunk("C_POS", "Content Positive", score=10.0)
+        self._insert_chunk("C_NEG", "Content Negative", score=10.0)
+        self._insert_chunk("C_NEU", "Content Neutral", score=10.0)
 
-        # Step 1: Retrieval + Positive Feedback
-        results = retrieve("query", self.db, top_k=3)
-        retrieved_ids = [r['chunk_id'] for r in results]
+        retrieved_ids = ["C_POS", "C_NEG", "C_NEU"]
 
-        before_scores = {r['chunk_id']: 10.0 for r in results}
-
-        # Trigger feedback with ALL selected
-        event = RetrievalEvent("query", retrieved_ids, retrieved_ids)
+        # Apply selective signals
+        event = RetrievalEvent(
+            query="query",
+            retrieved_chunk_ids=retrieved_ids,
+            selected_chunk_ids=["C_POS"],
+            dismissed_chunk_ids=["C_NEG"]
+        )
         log_event(event, self.db)
 
-        # Assert: scores increased
-        stats = self.db.get_top_chunks(limit=3)
-        print("Scores after selection:", {s['chunk_id']: s['success_score'] for s in stats})
-        for s in stats:
-            self.assertGreater(s['success_score'], before_scores[s['chunk_id']])
+        # Fetch stats
+        stats = {s['chunk_id']: s['success_score'] for s in self.db.get_top_chunks(limit=5)}
+        print("Scores after signals:", stats)
 
-        # Step 2: Retrieval WITHOUT selection (retrieved but NOT selected)
-        current_scores = {s['chunk_id']: s['success_score'] for s in stats}
-        event = RetrievalEvent("query", retrieved_ids, [])
-        log_event(event, self.db)
+        self.assertGreater(stats["C_POS"], 10.0) # Positive reinforcement
+        self.assertLess(stats["C_NEG"], 10.0)    # Negative reinforcement (dismissed)
+        self.assertEqual(stats["C_NEU"], 10.0)   # Neutral (ignored)
 
-        # Assert: scores remain identical (NO penalty)
-        stats = self.db.get_top_chunks(limit=3)
-        print("Scores after non-selection:", {s['chunk_id']: s['success_score'] for s in stats})
-        for s in stats:
-            self.assertEqual(s['success_score'], current_scores[s['chunk_id']])
-
-    def test_2_no_negative_drift_over_time(self):
-        """Ensure system does not degrade with repeated queries."""
-        print("\n--- TEST 2: No Negative Drift ---")
+    def test_2_signal_stability(self):
+        """Ensure no drift for neutral/ignored results over time."""
+        print("\n--- TEST 2: Signal Stability ---")
         for i in range(5):
-            self._insert_chunk(f"D{i}", f"Data {i}", score=5.0)
+            self._insert_chunk(f"S{i}", f"Stable {i}", score=5.0)
 
         score_history = []
-        for i in range(20):
-            results = retrieve("query", self.db, top_k=5)
-            retrieved_ids = [r['chunk_id'] for r in results]
+        for i in range(10):
+            # Normal retrieval in code uses retrieve() which defaults to neutral events
+            results = retrieve("stable", self.db, top_k=5)
 
-            # Use standard implicit selection (from retrieve call)
-            # and manually check scores
             stats = self.db.get_top_chunks(limit=5)
             scores = [s['success_score'] for s in stats]
             score_history.append(scores)
 
-            # Assert no score decreases
-            if i > 0:
-                prev_scores = score_history[i-1]
-                # Compare each chunk's current vs prev (might be reordered, so we sort or map)
-                self.assertTrue(all(s >= 5.0 for s in scores))
+            # Assert NO score changes for neutral retrievals
+            self.assertTrue(all(s == 5.0 for s in scores))
 
         print("Score progression (first 3 steps):", score_history[:3])
         # FINAL Assert: all scores >= initial
