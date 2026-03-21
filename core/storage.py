@@ -230,7 +230,7 @@ class StorageManager:
 
         # Fetch previous N
         cursor.execute("""
-            SELECT c.id, c.content, c.document_id, e.vector, s.retrieval_count, s.success_score, s.last_accessed, c.created_at, d.path, c.start_line, c.end_line
+            SELECT c.id, c.content, c.document_id, e.vector, s.retrieval_count, s.success_score, s.last_accessed, c.created_at, d.path, c.start_line, c.end_line, s.last_updated
             FROM chunks c
             LEFT JOIN embeddings e ON c.id = e.chunk_id
             LEFT JOIN retrieval_stats s ON c.id = s.chunk_id
@@ -243,7 +243,7 @@ class StorageManager:
 
         # Fetch next N
         cursor.execute("""
-            SELECT c.id, c.content, c.document_id, e.vector, s.retrieval_count, s.success_score, s.last_accessed, c.created_at, d.path, c.start_line, c.end_line
+            SELECT c.id, c.content, c.document_id, e.vector, s.retrieval_count, s.success_score, s.last_accessed, c.created_at, d.path, c.start_line, c.end_line, s.last_updated
             FROM chunks c
             LEFT JOIN embeddings e ON c.id = e.chunk_id
             LEFT JOIN retrieval_stats s ON c.id = s.chunk_id

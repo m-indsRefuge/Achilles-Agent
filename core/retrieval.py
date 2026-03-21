@@ -28,8 +28,8 @@ def retrieve(query: str, db: StorageManager, top_k: int = 10) -> List[Dict[str, 
 
     # Step 3: Build enriched query
     if entities:
-        enriched_query = query + " " + " ".join(entities[:20]) # Limit entities
         # Step 4: run second retrieval
+        enriched_query = query + " " + " ".join(entities)
         hop2_results = retrieve_no_event(enriched_query, db, top_k)
 
         # Step 5: Merge results
@@ -42,8 +42,16 @@ def retrieve(query: str, db: StorageManager, top_k: int = 10) -> List[Dict[str, 
                 merged_results.append(r)
                 seen_ids.add(r['chunk_id'])
 
-        # Re-rank using scoring engine (sorting by score.final)
-        merged_results.sort(key=lambda x: x['score']['final'] if isinstance(x['score'], dict) else x['score'], reverse=True)
+        # Deterministic ordering before final sort
+        merged_results.sort(key=lambda x: x["chunk_id"])
+
+        # Re-rank using scoring engine with stable tie-breaker
+        merged_results.sort(
+            key=lambda x: (
+                -(x['score']['final'] if isinstance(x['score'], dict) else x['score']),
+                x['chunk_id']
+            )
+        )
         top_results = merged_results[:top_k]
     else:
         top_results = hop1_results
@@ -78,34 +86,29 @@ def retrieve(query: str, db: StorageManager, top_k: int = 10) -> List[Dict[str, 
 
 def retrieve_no_event(query: str, db: StorageManager, top_k: int = 10) -> List[Dict[str, Any]]:
     """Ranked retrieval using the Scoring Engine without side-effects."""
-    # 1. Keywords extraction for pre-filtering
-    # Heuristic: prioritized words (capitalized or specific patterns)
-    keywords = re.findall(r'[A-Z][a-z0-9]+|\w{5,}', query)
+    # 1. Deterministic Keywords extraction
+    raw_keywords = re.findall(r'[A-Z][a-z0-9]+|\w{5,}', query)
+    keywords = sorted(list(set(raw_keywords)))
 
-    # 2. Fetch candidates (Filtered or Full Scan)
+    # 2. Deterministic Candidate Fetching
     candidates = []
     if keywords:
-        # Use more selective keywords first
-        sorted_keywords = sorted(keywords, key=len, reverse=True)
-        for kw in sorted_keywords[:5]:
-            chunk_batch = db.search_chunks_by_keyword(kw, limit=50)
+        # Use a stable sample of keywords
+        for kw in keywords[:10]:
+            chunk_batch = db.search_chunks_by_keyword(kw, limit=100)
             candidates.extend(chunk_batch)
-            if len(candidates) > 200: # Threshold for sufficient candidates
-                break
 
     if not candidates:
-        # Fallback to a broader but still somewhat limited scan if possible,
-        # or full scan if necessary for small repos.
         candidates = db.fetch_active_chunks()
 
     if not candidates:
         return []
 
-    # Deduplicate candidates
+    # Deduplicate and sort candidates deterministically before processing
     seen_cand = {}
     for c in candidates:
         seen_cand[c['id']] = c
-    candidates = list(seen_cand.values())
+    candidates = [seen_cand[cid] for cid in sorted(seen_cand.keys())]
 
     # 3. Embed query
     query_vector = embed_query(query)
@@ -136,8 +139,8 @@ def retrieve_no_event(query: str, db: StorageManager, top_k: int = 10) -> List[D
             'end_line': chunk.get('end_line')
         })
 
-    # 6. Ranking Pipeline: sort descending by final score
-    results.sort(key=lambda x: x['score']['final'], reverse=True)
+    # 6. Ranking Pipeline: sort descending by final score with deterministic tie-breaker
+    results.sort(key=lambda x: (-x['score']['final'], x['chunk_id']))
     return results[:top_k]
 
 def expand_context(chunk: Dict[str, Any], db: StorageManager, window_size: int = 1) -> List[Dict[str, Any]]:
@@ -151,10 +154,9 @@ def expand_context(chunk: Dict[str, Any], db: StorageManager, window_size: int =
 
     neighbors = db.get_chunk_neighbors(doc_id, start_line, n=window_size, chunk_id=chunk_id)
 
-    # Combine and sort to ensure order
-    # The get_chunk_neighbors returns prev and next. We insert original in middle.
+    # Deterministic neighbor sorting
     all_chunks = neighbors + [chunk]
-    all_chunks.sort(key=lambda x: x.get('start_line', 0))
+    all_chunks.sort(key=lambda x: (x.get('start_line', 0), x.get('id', '') or x.get('chunk_id', '')))
 
     return all_chunks
 
@@ -162,6 +164,9 @@ def stitch_chunks(chunks: List[Dict[str, Any]]) -> str:
     """Concatenate content in correct order, avoiding duplicates."""
     if not chunks:
         return ""
+
+    # Ensure stable ordering before stitching
+    chunks.sort(key=lambda x: (x.get('start_line', 0), x.get('id', '') or x.get('chunk_id', '')))
 
     stitched = []
     seen_content = set()
@@ -174,7 +179,7 @@ def stitch_chunks(chunks: List[Dict[str, Any]]) -> str:
     return "\n".join(stitched)
 
 def extract_entities(text: str) -> List[str]:
-    """Extract function names, class names, and identifiers."""
+    """Extract function names, class names, and identifiers deterministically."""
     entities = []
     # Extract function names: def NAME(
     entities.extend(re.findall(r'def\s+(\w+)\s*\(', text))
@@ -183,4 +188,6 @@ def extract_entities(text: str) -> List[str]:
     # Extract capitalized tokens (identifiers)
     entities.extend(re.findall(r'\b[A-Z][a-zA-Z0-9_]+\b', text))
 
-    return list(set(entities))
+    # Enforce deterministic order and limit
+    sorted_entities = sorted(list(set(entities)))
+    return sorted_entities[:10]

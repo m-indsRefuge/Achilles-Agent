@@ -55,20 +55,23 @@ class RetrievalScorer:
         feedback_score = decayed_success / (decayed_success + self.feedback_k)
 
         # 3. Recency Component (Exponential Decay: exp(-lambda * age))
+        # Deterministic recency: cap age to ensure floating point stability across environments
+        age_seconds = min(age_seconds, 31536000) # 1 year max age
         recency_score = math.exp(-self.decay_lambda * age_seconds)
 
-        # 4. Weighted Final Score
+        # 4. Weighted Final Score with Floating Point Stabilization
         final_score = (
             self.weights["similarity"] * similarity_score +
             self.weights["feedback"] * feedback_score +
             self.weights["recency"] * recency_score
         )
 
+        # Round components for determinism
         return {
-            "final_score": float(final_score),
+            "final_score": round(float(final_score), 6),
             "components": {
-                "similarity": float(similarity_score),
-                "feedback": float(feedback_score),
-                "recency": float(recency_score)
+                "similarity": round(float(similarity_score), 6),
+                "feedback": round(float(feedback_score), 6),
+                "recency": round(float(recency_score), 6)
             }
         }
