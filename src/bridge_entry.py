@@ -65,7 +65,9 @@ def main():
                 event = RetrievalEvent(
                     query=query.get("query", ""),
                     retrieved_chunk_ids=query.get("retrieved_ids", []),
-                    selected_chunk_ids=query.get("selected_ids", [])
+                    selected_chunk_ids=query.get("selected_ids", []),
+                    dismissed_chunk_ids=query.get("dismissed_ids", []),
+                    confidence_weights=query.get("weights", {})
                 )
                 log_event(event, um.kb.db)
                 results = {"status": "success"}

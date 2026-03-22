@@ -85,7 +85,8 @@ export function activate(context: vscode.ExtensionContext) {
                         bridge.queryMemory('feedback', {
                             query: currentInput,
                             retrieved_ids: retrievedIds,
-                            selected_ids: [] // Initially none selected
+                            selected_ids: [], // Initially none selected
+                            dismissed_ids: []
                         }).catch(e => console.error("Feedback error:", e));
                     }
 

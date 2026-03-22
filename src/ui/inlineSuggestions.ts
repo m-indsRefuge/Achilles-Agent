@@ -36,7 +36,20 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
             const prompt = `Context: ${contextText}\n\nCode so far: ${lineText}\nNext code:`;
             const completion = await this.model.generate(prompt);
 
-            // 3. Return as inline item
+            // 3. Selective Reinforcement: Record 'seen' results for this suggestion
+            // In a real scenario, we would wait for the user to 'accept' (Tab) to send positive signal.
+            // For this implementation, we log the retrieval.
+            if (kbResults && kbResults.length > 0) {
+                const retrievedIds = kbResults.map((r: any) => r.id);
+                this.bridge.queryMemory('feedback', {
+                    query: lineText.trim(),
+                    retrieved_ids: retrievedIds,
+                    selected_ids: [], // Placeholder for user interaction
+                    dismissed_ids: []
+                }).catch(e => console.error("Inline feedback error:", e));
+            }
+
+            // 4. Return as inline item
             return [new vscode.InlineCompletionItem(completion, new vscode.Range(position, position))];
         } catch (error) {
             console.error('Inline completion error:', error);

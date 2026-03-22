@@ -46,12 +46,13 @@ class TestMemorySystemBehavior(unittest.TestCase):
 
         retrieved_ids = ["C_POS", "C_NEG", "C_NEU"]
 
-        # Apply selective signals
+        # Apply selective signals with confidence weights
         event = RetrievalEvent(
             query="query",
             retrieved_chunk_ids=retrieved_ids,
             selected_chunk_ids=["C_POS"],
-            dismissed_chunk_ids=["C_NEG"]
+            dismissed_chunk_ids=["C_NEG"],
+            confidence_weights={"C_POS": 2.0, "C_NEG": 1.0}
         )
         log_event(event, self.db)
 
@@ -59,9 +60,11 @@ class TestMemorySystemBehavior(unittest.TestCase):
         stats = {s['chunk_id']: s['success_score'] for s in self.db.get_top_chunks(limit=5)}
         print("Scores after signals:", stats)
 
-        self.assertGreater(stats["C_POS"], 10.0) # Positive reinforcement
-        self.assertLess(stats["C_NEG"], 10.0)    # Negative reinforcement (dismissed)
-        self.assertEqual(stats["C_NEU"], 10.0)   # Neutral (ignored)
+        # C_POS: 10 + 1.0 * 2.0 = 12.0
+        # C_NEG: 10 - 0.2 * 1.0 = 9.8
+        self.assertEqual(stats["C_POS"], 12.0)
+        self.assertEqual(stats["C_NEG"], 9.8)
+        self.assertEqual(stats["C_NEU"], 10.0)
 
     def test_2_signal_stability(self):
         """Ensure no drift for neutral/ignored results over time."""
@@ -213,6 +216,34 @@ class TestMemorySystemBehavior(unittest.TestCase):
             self.assertIn("score", r)
             self.assertIn("final", r["score"])
             self.assertIn("components", r["score"])
+
+    def test_9_mixed_signals_convergence(self):
+        """Ensure system handles mixed signals and doesn't oscillate wildly."""
+        print("\n--- TEST 9: Mixed Signals Convergence ---")
+        self._insert_chunk("MIX", "Mixed content", score=10.0)
+
+        # Series of positive and negative signals
+        signals = [
+            ("selected", 1.0),   # 10 + 1.0 = 11.0
+            ("dismissed", 2.0),  # 11.0 - 0.4 = 10.6
+            ("selected", 0.5),   # 10.6 + 0.5 = 11.1
+            ("dismissed", 0.5)   # 11.1 - 0.1 = 11.0
+        ]
+
+        from core.feedback import log_event, RetrievalEvent
+        for sig, weight in signals:
+            event = RetrievalEvent(
+                query="q",
+                retrieved_chunk_ids=["MIX"],
+                selected_chunk_ids=["MIX"] if sig == "selected" else [],
+                dismissed_chunk_ids=["MIX"] if sig == "dismissed" else [],
+                confidence_weights={"MIX": weight}
+            )
+            log_event(event, self.db)
+
+        stats = self.db.get_top_chunks(limit=1)[0]
+        print("Final Mixed Score:", stats["success_score"])
+        self.assertAlmostEqual(stats["success_score"], 11.0)
 
 if __name__ == "__main__":
     unittest.main()

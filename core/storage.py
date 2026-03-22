@@ -169,11 +169,11 @@ class StorageManager:
         """)
         return self._map_rows_to_chunks(cursor.fetchall(), include_lines=True)
 
-    def update_retrieval_stats(self, chunk_id: str, signal: str = "neutral"):
+    def update_retrieval_stats(self, chunk_id: str, signal: str = "neutral", weight: float = 1.0):
         """
-        Updates retrieval statistics based on feedback signals.
-        - selected: strong positive reinforcement (+1.0)
-        - dismissed: weak negative reinforcement (-0.2)
+        Updates retrieval statistics based on feedback signals with confidence weighting.
+        - selected: strong positive reinforcement (+1.0 * weight)
+        - dismissed: weak negative reinforcement (-0.2 * weight)
         - neutral/ignored: no change
         """
         MAX_SUCCESS_SCORE = 50.0
@@ -192,9 +192,9 @@ class StorageManager:
             new_score = current_score
 
             if signal == "selected":
-                new_score += 1.0
+                new_score += 1.0 * weight
             elif signal == "dismissed":
-                new_score = max(MIN_SUCCESS_SCORE, new_score - 0.2)
+                new_score = max(MIN_SUCCESS_SCORE, new_score - (0.2 * weight))
 
             # Apply Hard Cap
             new_score = min(new_score, MAX_SUCCESS_SCORE)
