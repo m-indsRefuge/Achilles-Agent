@@ -1,6 +1,7 @@
 import sqlite3
 import os
 import time
+import math
 import threading
 import json
 from typing import List, Dict, Any, Optional
@@ -171,35 +172,64 @@ class StorageManager:
 
     def update_retrieval_stats(self, chunk_id: str, signal: str = "neutral", weight: float = 1.0):
         """
-        Updates retrieval statistics based on feedback signals with confidence weighting.
-        - selected: strong positive reinforcement (+1.0 * weight)
-        - dismissed: weak negative reinforcement (-0.2 * weight)
-        - neutral/ignored: no change
+        Updates retrieval statistics with Stability and Convergence logic.
+        - Includes Temporal Decay
+        - Delta Capping
+        - Momentum Smoothing
+        - Min/Max Bounding
         """
         MAX_SUCCESS_SCORE = 50.0
         MIN_SUCCESS_SCORE = 0.1
+        DECAY_LAMBDA = 1e-6
+        MAX_DELTA = 2.0
+        ALPHA = 0.3 # Momentum factor
 
         with self.lock:
             cursor = self.conn.cursor()
 
             # Fetch current state
-            cursor.execute("SELECT success_score FROM retrieval_stats WHERE chunk_id = ?", (chunk_id,))
+            cursor.execute("SELECT success_score, last_updated FROM retrieval_stats WHERE chunk_id = ?", (chunk_id,))
             row = cursor.fetchone()
             if not row:
                 return
 
-            current_score = row[0]
-            new_score = current_score
+            old_score, last_updated_str = row
+            current_time = time.time()
 
+            # 1. Apply Temporal Decay
+            last_updated = current_time
+            if last_updated_str:
+                try:
+                    import datetime
+                    if 'T' in last_updated_str:
+                        last_updated = datetime.datetime.fromisoformat(last_updated_str).timestamp()
+                    else:
+                        last_updated = datetime.datetime.strptime(last_updated_str, '%Y-%m-%d %H:%M:%S').timestamp()
+                except:
+                    last_updated = current_time
+
+            age = max(0, current_time - last_updated)
+            decay = math.exp(-DECAY_LAMBDA * age)
+            base_score = old_score * decay
+
+            # 2. Calculate Raw Delta with Capping
+            raw_delta = 0.0
             if signal == "selected":
-                new_score += 1.0 * weight
+                raw_delta = 1.0 * weight
             elif signal == "dismissed":
-                new_score = max(MIN_SUCCESS_SCORE, new_score - (0.2 * weight))
+                raw_delta = -0.2 * weight
 
-            # Apply Hard Cap
-            new_score = min(new_score, MAX_SUCCESS_SCORE)
+            capped_delta = max(-MAX_DELTA, min(MAX_DELTA, raw_delta))
 
-            # Persist
+            # 3. Momentum Smoothing
+            # new_score = alpha * (base + delta) + (1 - alpha) * old
+            target_score = base_score + capped_delta
+            new_score = (ALPHA * target_score) + ((1 - ALPHA) * old_score)
+
+            # 4. Apply Hard Bounds
+            new_score = max(MIN_SUCCESS_SCORE, min(new_score, MAX_SUCCESS_SCORE))
+
+            # 5. Persist
             cursor.execute("""
                 UPDATE retrieval_stats
                 SET retrieval_count = retrieval_count + 1,
