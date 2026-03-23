@@ -177,12 +177,14 @@ class StorageManager:
         - Delta Capping
         - Momentum Smoothing
         - Min/Max Bounding
+        - Local Competition (Relative Suppression)
         """
         MAX_SUCCESS_SCORE = 50.0
         MIN_SUCCESS_SCORE = 0.1
         DECAY_LAMBDA = 1e-6
         MAX_DELTA = 2.0
         ALPHA = 0.3 # Momentum factor
+        SUPPRESSION_FACTOR = 0.01 # Local competition multiplier
 
         with self.lock:
             cursor = self.conn.cursor()
@@ -212,7 +214,12 @@ class StorageManager:
             decay = math.exp(-DECAY_LAMBDA * age)
             base_score = old_score * decay
 
-            # 2. Calculate Raw Delta with Capping
+            # 2. Local Competition (Relative Suppression)
+            # If not selected, apply light suppression to base score
+            if signal != "selected":
+                base_score *= (1 - SUPPRESSION_FACTOR)
+
+            # 3. Calculate Raw Delta with Capping
             raw_delta = 0.0
             if signal == "selected":
                 raw_delta = 1.0 * weight
@@ -221,12 +228,12 @@ class StorageManager:
 
             capped_delta = max(-MAX_DELTA, min(MAX_DELTA, raw_delta))
 
-            # 3. Momentum Smoothing
+            # 4. Momentum Smoothing
             # new_score = alpha * (base + delta) + (1 - alpha) * old
             target_score = base_score + capped_delta
             new_score = (ALPHA * target_score) + ((1 - ALPHA) * old_score)
 
-            # 4. Apply Hard Bounds
+            # 5. Apply Hard Bounds
             new_score = max(MIN_SUCCESS_SCORE, min(new_score, MAX_SUCCESS_SCORE))
 
             # 5. Persist

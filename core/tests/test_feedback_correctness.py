@@ -45,9 +45,10 @@ class TestFeedbackCorrectness(unittest.TestCase):
         event = RetrievalEvent("query", [self.chunk_id], [], [])
         log_event(event, self.db)
 
-        # Score should remain close to 1.0 (no extra penalty, just tiny decay)
+        # Score should remain close to 1.0 (slight suppression applied for neutral)
         stats = self.db.get_top_chunks(limit=1)[0]
-        self.assertAlmostEqual(stats['success_score'], 1.0, places=5)
+        self.assertLess(stats['success_score'], 1.0)
+        self.assertGreater(stats['success_score'], 0.99)
         self.assertEqual(stats['retrieval_count'], 1)
 
     def test_negative_reinforcement(self):
