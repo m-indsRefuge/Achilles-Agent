@@ -140,24 +140,24 @@ class TestMemorySystemBehavior(unittest.TestCase):
     def test_5_context_expansion_integrity(self):
         """Ensure expanded context is coherent and stable."""
         print("\n--- TEST 5: Context Expansion Integrity ---")
-        # Higher score for E2 to ensure it is retrieved as the top result
-        self._insert_chunk("E1", "Line 1", line=1, score=1.0)
-        self._insert_chunk("E2", "Line 2", line=10, score=10.0)
-        self._insert_chunk("E3", "Line 3", line=20, score=1.0)
+        # Identical text to ensure equal similarity
+        self._insert_chunk("E1", "Alpha Line", line=1, score=0.1)
+        self._insert_chunk("E2", "Beta Line", line=10, score=1.0)
+        self._insert_chunk("E3", "Gamma Line", line=20, score=0.1)
 
-        # Retrieve E2
-        results = retrieve("Line 2", self.db, top_k=1)
+        # Retrieve E2 (should win on feedback if query matches all)
+        results = retrieve("Line", self.db, top_k=1)
         res = results[0]
         self.assertEqual(res['chunk_id'], "E2")
 
         print("Expanded context for E2:", res['context'])
-        self.assertIn("Line 1", res['context'])
-        self.assertIn("Line 2", res['context'])
-        self.assertIn("Line 3", res['context'])
+        self.assertIn("Alpha", res['context'])
+        self.assertIn("Beta", res['context'])
+        self.assertIn("Gamma", res['context'])
 
         # Order should be L1 -> L2 -> L3
-        self.assertTrue(res['context'].find("Line 1") < res['context'].find("Line 2"))
-        self.assertTrue(res['context'].find("Line 2") < res['context'].find("Line 3"))
+        self.assertTrue(res['context'].find("Alpha") < res['context'].find("Beta"))
+        self.assertTrue(res['context'].find("Beta") < res['context'].find("Gamma"))
 
     def test_6_multi_hop_retrieval_behavior(self):
         """Verify second-hop adds value."""

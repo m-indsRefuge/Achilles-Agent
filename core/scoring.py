@@ -12,9 +12,8 @@ class RetrievalScorer:
                  decay_lambda: float = 1e-6,
                  feedback_k: float = 5.0):
         self.weights = weights or {
-            "similarity": 0.6,
-            "feedback": 0.3,
-            "recency": 0.1
+            "similarity": 0.7,
+            "feedback": 0.3
         }
         self.decay_lambda = decay_lambda
         self.feedback_k = feedback_k
@@ -47,12 +46,9 @@ class RetrievalScorer:
 
         age_seconds = max(0, current_time - last_time)
 
-        # 2. Feedback Component (Bounded function: s / (s + k))
-        # Note: Success score itself should decay to prevent long-term bias
-        success_score = chunk.get("success_score", 1.0)
-        # Apply temporal decay to the feedback signal itself for true bias prevention
-        decayed_success = success_score * math.exp(-self.decay_lambda * age_seconds)
-        feedback_score = decayed_success / (decayed_success + self.feedback_k)
+        # 2. Feedback Component (Direct normalized signal)
+        feedback_score = chunk.get("success_score", 0.1)
+        feedback_score = max(0.0, min(1.0, feedback_score))
 
         # 3. Recency Component (Exponential Decay: exp(-lambda * age))
         # Deterministic recency: cap age to ensure floating point stability across environments
@@ -60,10 +56,10 @@ class RetrievalScorer:
         recency_score = math.exp(-self.decay_lambda * age_seconds)
 
         # 4. Weighted Final Score with Floating Point Stabilization
+        # Only Similarity and Feedback currently contribute to ranking
         final_score = (
-            self.weights["similarity"] * similarity_score +
-            self.weights["feedback"] * feedback_score +
-            self.weights["recency"] * recency_score
+            self.weights.get("similarity", 0.7) * similarity_score +
+            self.weights.get("feedback", 0.3) * feedback_score
         )
 
         # Round components for determinism

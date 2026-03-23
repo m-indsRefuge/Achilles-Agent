@@ -95,9 +95,10 @@ class TestDeterministicRetrieval(unittest.TestCase):
 
     def test_context_stitching_determinism(self):
         """Stitched context preserves line order regardless of retrieval order."""
-        # Force C2 retrieval
+        # Use identical text to ensure equal similarity, boost C2
         cursor = self.db.conn.cursor()
-        cursor.execute("UPDATE retrieval_stats SET success_score=100.0 WHERE chunk_id='C2'")
+        cursor.execute("UPDATE retrieval_stats SET success_score=1.0 WHERE chunk_id='C2'")
+        cursor.execute("UPDATE retrieval_stats SET success_score=0.1 WHERE chunk_id IN ('C1', 'C3')")
         self.db.conn.commit()
 
         results = retrieve("Data", self.db, top_k=1)

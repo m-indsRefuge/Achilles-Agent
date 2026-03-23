@@ -21,8 +21,8 @@ class TestScoring(unittest.TestCase):
 
     def test_feedback_impact(self):
         # High feedback improves rank
-        chunk_high = {"success_score": 10.0, "created_at": time.time()}
-        chunk_low = {"success_score": 1.0, "created_at": time.time()}
+        chunk_high = {"success_score": 0.9, "created_at": time.time()}
+        chunk_low = {"success_score": 0.1, "created_at": time.time()}
 
         # Keep similarity same
         meta = {"raw_similarity": 0.5}
@@ -32,10 +32,10 @@ class TestScoring(unittest.TestCase):
 
         self.assertGreater(score_high["final_score"], score_low["final_score"])
         # Check bounded nature
-        self.assertLess(score_high["components"]["feedback"], 1.0)
+        self.assertLessEqual(score_high["components"]["feedback"], 1.0)
 
-    def test_recency_decay(self):
-        # Old chunks decay
+    def test_recency_component(self):
+        # Old chunks decay in recency component
         now = time.time()
         chunk_new = {"success_score": 1.0, "created_at": now}
         chunk_old = {"success_score": 1.0, "created_at": now - 100000}
@@ -45,8 +45,9 @@ class TestScoring(unittest.TestCase):
         score_new = self.scorer.score(chunk_new, [], metadata=meta)
         score_old = self.scorer.score(chunk_old, [], metadata=meta)
 
-        self.assertGreater(score_new["final_score"], score_old["final_score"])
+        # Note: recency no longer contributes to final_score but is in components
         self.assertLess(score_old["components"]["recency"], 1.0)
+        self.assertGreater(score_new["components"]["recency"], score_old["components"]["recency"])
 
     def test_output_structure(self):
         chunk = {"success_score": 1.0, "created_at": time.time()}
