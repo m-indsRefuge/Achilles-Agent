@@ -256,6 +256,12 @@ class StorageManager:
             """, (query, json.dumps(retrieved_ids), json.dumps(selected_ids), json.dumps(dismissed_ids or [])))
             self.conn.commit()
 
+    def get_query_frequency(self, query: str) -> int:
+        """Count how many times a query has been performed historically."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM retrieval_events WHERE query = ?", (query,))
+        return cursor.fetchone()[0]
+
     def normalize_retrieval_set_scores(self, chunk_ids: List[str]):
         """
         Local normalization: Scales all scores in the retrieval set relative to the maximum score (0->1 range).

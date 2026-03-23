@@ -39,20 +39,20 @@ class TestDeterministicRetrieval(unittest.TestCase):
 
         # Manually sync time for repeatability within the same process test
         fixed_time = "2024-01-01 12:00:00"
-        for cid in ["C1", "C2", "C3", "H1"]:
-            cursor = self.db.conn.cursor()
-            cursor.execute("UPDATE retrieval_stats SET last_updated=? WHERE chunk_id=?", (fixed_time, cid))
-            self.db.conn.commit()
+        def sync():
+            for cid in ["C1", "C2", "C3", "H1"]:
+                cursor = self.db.conn.cursor()
+                cursor.execute("UPDATE retrieval_stats SET last_updated=? WHERE chunk_id=?", (fixed_time, cid))
+                self.db.conn.commit()
 
+        sync()
         results_1 = retrieve(query, self.db, top_k=5)
 
-        # Ensure log_event from the first run doesn't change success_score for the second run
-        # in a way that breaks equality (since log_event updates stats).
-        # We re-sync time to ensure recency is same.
-        for cid in ["C1", "C2", "C3", "H1"]:
-            cursor = self.db.conn.cursor()
-            cursor.execute("UPDATE retrieval_stats SET last_updated=? WHERE chunk_id=?", (fixed_time, cid))
-            self.db.conn.commit()
+        # Re-sync stats and CLEAR events to ensure same dynamic weight and scores
+        sync()
+        cursor = self.db.conn.cursor()
+        cursor.execute("DELETE FROM retrieval_events")
+        self.db.conn.commit()
 
         results_2 = retrieve(query, self.db, top_k=5)
 
@@ -137,11 +137,15 @@ class TestDeterministicRetrieval(unittest.TestCase):
         first_norm = normalize(results[0])
 
         for i in range(1, len(results)):
-            # Sync time again before each check if log_event happened in retrieve
+            # Sync time again and CLEAR events before each check
             for cid in ["C1", "C2", "C3", "H1"]:
                 cursor = self.db.conn.cursor()
                 cursor.execute("UPDATE retrieval_stats SET last_updated=? WHERE chunk_id=?", (fixed_time, cid))
                 self.db.conn.commit()
+
+            cursor = self.db.conn.cursor()
+            cursor.execute("DELETE FROM retrieval_events")
+            self.db.conn.commit()
 
             variant_res = retrieve(query_variants[i], self.db, top_k=5)
             self.assertEqual(normalize(variant_res), first_norm, f"Variant {i} failed canonicalization")

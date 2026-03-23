@@ -2,7 +2,7 @@ import math
 import time
 import array
 import re
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from storage import StorageManager
 from embedding import embed_query
 from feedback import log_event, RetrievalEvent
@@ -24,12 +24,26 @@ def normalize_query(query: str) -> str:
     query = query.strip().lower()
     return " ".join(query.split())
 
+def compute_dynamic_weights(query: str, db: StorageManager) -> Dict[str, float]:
+    """Balances similarity vs feedback based on query context (repetition)."""
+    repeat_count = db.get_query_frequency(query)
+
+    # feedback_weight ∈ [0.1, 0.5]
+    feedback_weight = min(0.5, 0.1 + 0.1 * repeat_count)
+    similarity_weight = 1.0 - feedback_weight
+
+    return {
+        "similarity_weight": round(similarity_weight, 2),
+        "feedback_weight": round(feedback_weight, 2)
+    }
+
 def retrieve(query: str, db: StorageManager, top_k: int = 10) -> List[Dict[str, Any]]:
     """Intelligent multi-hop retrieval with context expansion."""
     query = normalize_query(query)
+    weights = compute_dynamic_weights(query, db)
 
-    # Step 1: Initial Retrieval
-    hop1_results = retrieve_no_event(query, db, top_k)
+    # Step 1: Initial Retrieval (Pass dynamic weights)
+    hop1_results = retrieve_no_event(query, db, top_k, weights=weights)
 
     # Step 2: Entity Extraction
     all_content = " ".join([r['content'] for r in hop1_results])
@@ -39,7 +53,7 @@ def retrieve(query: str, db: StorageManager, top_k: int = 10) -> List[Dict[str, 
     if entities:
         # Step 4: run second retrieval
         enriched_query = query + " " + " ".join(entities)
-        hop2_results = retrieve_no_event(enriched_query, db, top_k)
+        hop2_results = retrieve_no_event(enriched_query, db, top_k, weights=weights)
 
         # Step 5: Merge results
         # Deduplicate by chunk_id
@@ -99,7 +113,7 @@ def retrieve(query: str, db: StorageManager, top_k: int = 10) -> List[Dict[str, 
 
     return final_results
 
-def retrieve_no_event(query: str, db: StorageManager, top_k: int = 10) -> List[Dict[str, Any]]:
+def retrieve_no_event(query: str, db: StorageManager, top_k: int = 10, weights: Optional[Dict[str, float]] = None) -> List[Dict[str, Any]]:
     """Ranked retrieval using the Scoring Engine without side-effects."""
     query = normalize_query(query)
 
@@ -141,7 +155,11 @@ def retrieve_no_event(query: str, db: StorageManager, top_k: int = 10) -> List[D
         similarity = cosine_similarity(query_vector, chunk_vector)
 
         # 5. Delegate scoring to the engine (Single source of truth)
-        score_data = scorer.score(chunk, query_vector, metadata={"raw_similarity": similarity})
+        score_meta = {"raw_similarity": similarity}
+        if weights:
+            score_meta.update(weights)
+
+        score_data = scorer.score(chunk, query_vector, metadata=score_meta)
 
         results.append({
             'chunk_id': chunk['id'],

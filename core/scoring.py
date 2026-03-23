@@ -56,11 +56,11 @@ class RetrievalScorer:
         recency_score = math.exp(-self.decay_lambda * age_seconds)
 
         # 4. Weighted Final Score with Floating Point Stabilization
-        # Only Similarity and Feedback currently contribute to ranking
-        final_score = (
-            self.weights.get("similarity", 0.7) * similarity_score +
-            self.weights.get("feedback", 0.3) * feedback_score
-        )
+        # Uses dynamic weights if provided in metadata
+        s_weight = metadata.get("similarity_weight", self.weights.get("similarity", 0.7)) if metadata else self.weights.get("similarity", 0.7)
+        f_weight = metadata.get("feedback_weight", self.weights.get("feedback", 0.3)) if metadata else self.weights.get("feedback", 0.3)
+
+        final_score = (s_weight * similarity_score) + (f_weight * feedback_score)
 
         # Round components for determinism
         return {
