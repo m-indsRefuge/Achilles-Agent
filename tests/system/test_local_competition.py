@@ -40,16 +40,12 @@ class TestLocalCompetition(unittest.TestCase):
         stats = {s['chunk_id']: s['success_score'] for s in self.db.get_top_chunks(limit=3)}
         print("Scores after Selecting A:", stats)
 
-        # A should increase (subject to momentum)
-        self.assertGreater(stats["A"], 10.0)
+        # A should be normalized to 1.0 (max)
+        self.assertEqual(stats["A"], 1.0)
 
-        # B and C should decrease (subject to suppression)
-        # previous was 10.0.
-        # base_score after decay (0) and suppression (0.99) = 9.9
-        # new_score = alpha * (9.9 + 0) + (1-alpha) * 10.0
-        # = 0.3 * 9.9 + 0.7 * 10.0 = 2.97 + 7.0 = 9.97
-        self.assertLess(stats["B"], 10.0)
-        self.assertLess(stats["C"], 10.0)
+        # B and C should be suppressed and thus normalized to less than 1.0
+        self.assertLess(stats["B"], 1.0)
+        self.assertLess(stats["C"], 1.0)
 
         # Ranking should be A > B, A > C
         self.assertGreater(stats["A"], stats["B"])
@@ -65,8 +61,9 @@ class TestLocalCompetition(unittest.TestCase):
         stats = {s['chunk_id']: s['success_score'] for s in self.db.get_top_chunks(limit=3)}
         print("Final Scores:", stats)
 
-        # Gap should be significant
-        self.assertGreater(stats["A"] - stats["B"], 1.0)
+        # A is 1.0, B is suppressed repeatedly
+        self.assertEqual(stats["A"], 1.0)
+        self.assertLess(stats["B"], 0.5)
 
 if __name__ == "__main__":
     unittest.main()

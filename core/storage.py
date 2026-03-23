@@ -256,6 +256,45 @@ class StorageManager:
             """, (query, json.dumps(retrieved_ids), json.dumps(selected_ids), json.dumps(dismissed_ids or [])))
             self.conn.commit()
 
+    def normalize_retrieval_set_scores(self, chunk_ids: List[str]):
+        """
+        Local normalization: Scales all scores in the retrieval set relative to the maximum score (0->1 range).
+        Preserves relative differences and respects the floor constraint.
+        """
+        if not chunk_ids:
+            return
+
+        MIN_SUCCESS_SCORE = 0.1
+
+        with self.lock:
+            cursor = self.conn.cursor()
+
+            # 1. Fetch current scores
+            placeholders = ','.join(['?'] * len(chunk_ids))
+            cursor.execute(f"SELECT chunk_id, success_score FROM retrieval_stats WHERE chunk_id IN ({placeholders})", chunk_ids)
+            results = cursor.fetchall()
+
+            if not results:
+                return
+
+            # 2. Find maximum
+            max_score = max(r[1] for r in results)
+
+            # 3. Apply normalization
+            if max_score > 0:
+                for chunk_id, current_score in results:
+                    normalized_score = current_score / max_score
+                    # Maintain floor
+                    final_score = max(MIN_SUCCESS_SCORE, normalized_score)
+
+                    cursor.execute("""
+                        UPDATE retrieval_stats
+                        SET success_score = ?
+                        WHERE chunk_id = ?
+                    """, (final_score, chunk_id))
+
+            self.conn.commit()
+
     def search_chunks_by_keyword(self, keyword: str, limit: int = 200) -> List[Dict[str, Any]]:
         cursor = self.conn.cursor()
         cursor.execute("""

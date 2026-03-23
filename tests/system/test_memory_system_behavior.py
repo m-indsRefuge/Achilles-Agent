@@ -60,15 +60,16 @@ class TestMemorySystemBehavior(unittest.TestCase):
         stats = {s['chunk_id']: s['success_score'] for s in self.db.get_top_chunks(limit=5)}
         print("Scores after signals:", stats)
 
-        # Values are dampened by alpha=0.3
-        self.assertGreater(stats["C_POS"], 10.0)
-        self.assertLess(stats["C_NEG"], 10.0)
-        # C_NEU is slightly suppressed
-        self.assertLess(stats["C_NEU"], 10.0)
-        self.assertGreater(stats["C_NEU"], 9.9)
+        # After normalization, C_POS (selected) should be 1.0
+        self.assertEqual(stats["C_POS"], 1.0)
+        # C_NEG (dismissed) and C_NEU (ignored) should be less than 1.0
+        self.assertLess(stats["C_NEG"], 1.0)
+        self.assertLess(stats["C_NEU"], 1.0)
+        # C_NEG should be less than C_NEU due to dismissal vs suppression
+        self.assertLess(stats["C_NEG"], stats["C_NEU"])
 
     def test_2_signal_stability(self):
-        """Ensure signals are stable (slight decay is expected over time)."""
+        """Ensure signals are stable (normalized to max 1.0)."""
         print("\n--- TEST 2: Signal Stability ---")
         for i in range(5):
             self._insert_chunk(f"S{i}", f"Stable {i}", score=5.0)
@@ -82,14 +83,16 @@ class TestMemorySystemBehavior(unittest.TestCase):
             scores = [s['success_score'] for s in stats]
             score_history.append(scores)
 
-            # Assert scores remain stable (minor decay and suppression allowed)
-            self.assertTrue(all(s <= 5.0 and s > 4.5 for s in scores))
+            # Assert scores are normalized
+            self.assertTrue(all(s <= 1.0 for s in scores))
+            self.assertIn(1.0, scores)
 
         print("Score progression (first 3 steps):", score_history[:3])
-        # FINAL Assert: all scores >= initial (minor threshold due to decay and suppression)
+        # FINAL Assert: all scores are in bounded range
         final_stats = self.db.get_top_chunks(limit=5)
         for s in final_stats:
-            self.assertGreater(s['success_score'], 4.5)
+            self.assertGreaterEqual(s['success_score'], 0.1)
+            self.assertLessEqual(s['success_score'], 1.0)
 
     def test_3_ranking_stability(self):
         """Ensure ranking does not become random or unstable."""
@@ -244,9 +247,8 @@ class TestMemorySystemBehavior(unittest.TestCase):
 
         stats = self.db.get_top_chunks(limit=1)[0]
         print("Final Mixed Score:", stats["success_score"])
-        # Target was 11.0, but with alpha=0.3 it converges slower
-        self.assertGreater(stats["success_score"], 10.0)
-        self.assertLess(stats["success_score"], 11.0)
+        # Score is normalized to 1.0 (it's the only chunk)
+        self.assertEqual(stats["success_score"], 1.0)
 
 if __name__ == "__main__":
     unittest.main()

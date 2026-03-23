@@ -34,3 +34,6 @@ def log_event(event: RetrievalEvent, db: StorageManager):
         else:
             # Neutral: increment count but no score change
             db.update_retrieval_stats(chunk_id, signal="neutral")
+
+    # 3. Local Score Normalization: ensures scores remain bounded [0, 1] relative to set
+    db.normalize_retrieval_set_scores(event.retrieved_chunk_ids)
