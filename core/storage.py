@@ -79,7 +79,17 @@ class StorageManager:
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 retrieved_chunk_ids TEXT,
                 selected_chunk_ids TEXT,
-                dismissed_chunk_ids TEXT
+                dismissed_chunk_ids TEXT,
+                source_id TEXT
+            )
+        """)
+
+        # 6. Source Reliability table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS source_reliability (
+                source_id TEXT PRIMARY KEY,
+                reliability REAL DEFAULT 1.0,
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
 
@@ -247,15 +257,15 @@ class StorageManager:
             """, (new_score, chunk_id))
             self.conn.commit()
 
-    def insert_retrieval_event(self, query: str, retrieved_ids: List[str], selected_ids: List[str], dismissed_ids: Optional[List[str]] = None, timestamp: Optional[float] = None):
+    def insert_retrieval_event(self, query: str, retrieved_ids: List[str], selected_ids: List[str], dismissed_ids: Optional[List[str]] = None, timestamp: Optional[float] = None, source_id: Optional[str] = None):
         if timestamp is None:
             timestamp = time.time()
         with self.lock:
             cursor = self.conn.cursor()
             cursor.execute("""
-                INSERT INTO retrieval_events (query, retrieved_chunk_ids, selected_chunk_ids, dismissed_chunk_ids, timestamp)
-                VALUES (?, ?, ?, ?, ?)
-            """, (query, json.dumps(retrieved_ids), json.dumps(selected_ids), json.dumps(dismissed_ids or []), timestamp))
+                INSERT INTO retrieval_events (query, retrieved_chunk_ids, selected_chunk_ids, dismissed_chunk_ids, timestamp, source_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (query, json.dumps(retrieved_ids), json.dumps(selected_ids), json.dumps(dismissed_ids or []), timestamp, source_id))
             self.conn.commit()
 
     def get_query_timestamps(self, query: str, limit: int = 100) -> List[float]:
@@ -280,6 +290,33 @@ class StorageManager:
                 except:
                     pass
         return timestamps
+
+    def get_source_reliability(self, source_id: str) -> float:
+        """Fetch reliability multiplier for a specific signal source."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT reliability FROM source_reliability WHERE source_id = ?", (source_id,))
+        row = cursor.fetchone()
+        return row[0] if row else 1.0
+
+    def update_source_reliability(self, source_id: str, good_signal: bool):
+        """Gradually evolve source reliability based on signal quality (0.5 -> 1.5)."""
+        RELIABILITY_STEP = 0.01
+        MAX_RELIABILITY = 1.5
+        MIN_RELIABILITY = 0.5
+
+        with self.lock:
+            cursor = self.conn.cursor()
+            cursor.execute("INSERT OR IGNORE INTO source_reliability (source_id, reliability) VALUES (?, 1.0)", (source_id,))
+
+            delta = RELIABILITY_STEP if good_signal else -RELIABILITY_STEP
+
+            cursor.execute("""
+                UPDATE source_reliability
+                SET reliability = MAX(?, MIN(?, reliability + ?)),
+                    last_updated = CURRENT_TIMESTAMP
+                WHERE source_id = ?
+            """, (MIN_RELIABILITY, MAX_RELIABILITY, delta, source_id))
+            self.conn.commit()
 
     def normalize_retrieval_set_scores(self, chunk_ids: List[str]):
         """
