@@ -117,8 +117,8 @@ def retrieve(query: str, db: StorageManager, top_k: int = 10) -> List[Dict[str, 
 
     # TODO:
     # Capture and pass real user interaction signals (selected/dismissed) from the UI layer.
-    # By default, we initialize with empty selections to prevent signal inflation.
-    event = RetrievalEvent(query, retrieved_ids, selected_chunk_ids=[], dismissed_chunk_ids=[])
+    # By default, we initialize with empty selections and 'view' signal to prevent inflation.
+    event = RetrievalEvent(query, retrieved_ids, selected_chunk_ids=[], dismissed_chunk_ids=[], signal_type="view")
     log_event(event, db)
 
     return final_results
