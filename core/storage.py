@@ -247,20 +247,39 @@ class StorageManager:
             """, (new_score, chunk_id))
             self.conn.commit()
 
-    def insert_retrieval_event(self, query: str, retrieved_ids: List[str], selected_ids: List[str], dismissed_ids: Optional[List[str]] = None):
+    def insert_retrieval_event(self, query: str, retrieved_ids: List[str], selected_ids: List[str], dismissed_ids: Optional[List[str]] = None, timestamp: Optional[float] = None):
+        if timestamp is None:
+            timestamp = time.time()
         with self.lock:
             cursor = self.conn.cursor()
             cursor.execute("""
-                INSERT INTO retrieval_events (query, retrieved_chunk_ids, selected_chunk_ids, dismissed_chunk_ids)
-                VALUES (?, ?, ?, ?)
-            """, (query, json.dumps(retrieved_ids), json.dumps(selected_ids), json.dumps(dismissed_ids or [])))
+                INSERT INTO retrieval_events (query, retrieved_chunk_ids, selected_chunk_ids, dismissed_chunk_ids, timestamp)
+                VALUES (?, ?, ?, ?, ?)
+            """, (query, json.dumps(retrieved_ids), json.dumps(selected_ids), json.dumps(dismissed_ids or []), timestamp))
             self.conn.commit()
 
-    def get_query_frequency(self, query: str) -> int:
-        """Count how many times a query has been performed historically."""
+    def get_query_timestamps(self, query: str, limit: int = 100) -> List[float]:
+        """Fetch historical timestamps for a specific query, sorted by recency."""
         cursor = self.conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM retrieval_events WHERE query = ?", (query,))
-        return cursor.fetchone()[0]
+        cursor.execute("SELECT timestamp FROM retrieval_events WHERE query = ? ORDER BY timestamp DESC LIMIT ?", (query, limit))
+        rows = cursor.fetchall()
+
+        timestamps = []
+        for r in rows:
+            val = r[0]
+            if isinstance(val, (int, float)):
+                timestamps.append(float(val))
+            elif isinstance(val, str):
+                # Fallback for legacy string timestamps
+                try:
+                    import datetime
+                    if ' ' in val:
+                        timestamps.append(datetime.datetime.strptime(val, '%Y-%m-%d %H:%M:%S').timestamp())
+                    else:
+                        timestamps.append(datetime.datetime.fromisoformat(val).timestamp())
+                except:
+                    pass
+        return timestamps
 
     def normalize_retrieval_set_scores(self, chunk_ids: List[str]):
         """

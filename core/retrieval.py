@@ -25,11 +25,21 @@ def normalize_query(query: str) -> str:
     return " ".join(query.split())
 
 def compute_dynamic_weights(query: str, db: StorageManager) -> Dict[str, float]:
-    """Balances similarity vs feedback based on query context (repetition)."""
-    repeat_count = db.get_query_frequency(query)
+    """Balances similarity vs feedback based on time-decayed query frequency."""
+    timestamps = db.get_query_timestamps(query)
+
+    # Exponential decay for query frequency
+    # DECAY_LAMBDA = 1e-5 (approx 1 day half-life for query relevance)
+    DECAY_LAMBDA = 1e-5
+    current_time = time.time()
+
+    query_frequency = 0.0
+    for t in timestamps:
+        age = max(0, current_time - t)
+        query_frequency += math.exp(-DECAY_LAMBDA * age)
 
     # feedback_weight ∈ [0.1, 0.5]
-    feedback_weight = min(0.5, 0.1 + 0.1 * repeat_count)
+    feedback_weight = min(0.5, 0.1 + 0.1 * query_frequency)
     similarity_weight = 1.0 - feedback_weight
 
     return {
