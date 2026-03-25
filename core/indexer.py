@@ -162,3 +162,6 @@ def run_indexer(root_path: str, db: StorageManager):
     for path, doc_id in existing_docs.items():
         if path not in processed_paths:
             db.deactivate_chunks_for_document(doc_id)
+
+    # Apply long-term memory pruning policy
+    db.prune_memory()

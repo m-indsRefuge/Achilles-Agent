@@ -173,8 +173,8 @@ class StorageManager:
         cursor.execute("""
             SELECT c.id, c.content, c.document_id, e.vector, s.retrieval_count, s.success_score, s.last_accessed, c.created_at, d.path, c.start_line, c.end_line, s.last_updated
             FROM chunks c
-            JOIN embeddings e ON c.id = e.chunk_id
-            JOIN retrieval_stats s ON c.id = s.chunk_id
+            LEFT JOIN embeddings e ON c.id = e.chunk_id
+            LEFT JOIN retrieval_stats s ON c.id = s.chunk_id
             JOIN documents d ON c.document_id = d.id
             WHERE c.is_active = 1
         """)
@@ -316,6 +316,81 @@ class StorageManager:
                     last_updated = CURRENT_TIMESTAMP
                 WHERE source_id = ?
             """, (MIN_RELIABILITY, MAX_RELIABILITY, delta, source_id))
+            self.conn.commit()
+
+    def prune_memory(self):
+        """
+        Implements retention policy: Deactivates low-value chunks.
+        retention_score = success_score * 0.6 + recency_score * 0.4
+        Protects high-value chunks and maintains a minimum floor.
+        """
+        PRUNE_THRESHOLD = 0.1
+        HIGH_VALUE_THRESHOLD = 0.5 # Protect anything reasonably good
+        MIN_REMAINING_CHUNKS = 10
+        DECAY_LAMBDA = 1e-6
+
+        with self.lock:
+            cursor = self.conn.cursor()
+
+            # 1. Fetch all active chunks with stats
+            cursor.execute("""
+                SELECT c.id, s.success_score, s.last_updated, c.document_id
+                FROM chunks c
+                JOIN retrieval_stats s ON c.id = s.chunk_id
+                WHERE c.is_active = 1
+            """)
+            rows = cursor.fetchall()
+
+            if len(rows) <= MIN_REMAINING_CHUNKS:
+                return
+
+            current_time = time.time()
+            to_prune = []
+
+            # 2. Calculate retention scores
+            candidates = []
+            for cid, success_score, last_updated_str, doc_id in rows:
+                # Protect HIGH VALUE chunks immediately
+                if success_score > HIGH_VALUE_THRESHOLD:
+                    continue
+
+                # Calculate recency_score
+                last_updated = current_time
+                if last_updated_str:
+                    try:
+                        import datetime
+                        if isinstance(last_updated_str, (int, float)):
+                            last_updated = float(last_updated_str)
+                        elif ' ' in str(last_updated_str):
+                            # Try ISO format without T
+                            try:
+                                last_updated = datetime.datetime.strptime(str(last_updated_str), '%Y-%m-%d %H:%M:%S').timestamp()
+                            except:
+                                # Try full ISO
+                                last_updated = datetime.datetime.fromisoformat(str(last_updated_str)).timestamp()
+                        else:
+                            last_updated = datetime.datetime.fromisoformat(str(last_updated_str)).timestamp()
+                    except:
+                        last_updated = current_time
+
+                age = max(0, current_time - last_updated)
+                recency_score = math.exp(-DECAY_LAMBDA * age)
+
+                retention_score = (success_score * 0.6) + (recency_score * 0.4)
+
+                if retention_score < PRUNE_THRESHOLD:
+                    candidates.append((cid, retention_score))
+
+            # 3. Apply Pruning (respecting Floor)
+            # Sort by retention_score ascending (worst first)
+            candidates.sort(key=lambda x: x[1])
+
+            allowed_to_prune = len(rows) - MIN_REMAINING_CHUNKS
+            prune_count = min(len(candidates), allowed_to_prune)
+
+            for i in range(prune_count):
+                cursor.execute("UPDATE chunks SET is_active = 0 WHERE id = ?", (candidates[i][0],))
+
             self.conn.commit()
 
     def normalize_retrieval_set_scores(self, chunk_ids: List[str]):
