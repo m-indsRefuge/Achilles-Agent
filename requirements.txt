@@ -5,5 +5,5 @@ huggingface-hub>=0.23.0
 torch>=2.2.0
 transformers>=4.40.0
 datasets==2.14.0
-torch>=2.0.0
 pandas>=2.0
+pytest>=8.0.0
